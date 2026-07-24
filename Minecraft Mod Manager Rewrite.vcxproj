@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Release|x64">
@@ -135,6 +135,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <LanguageStandard_C>stdclatest</LanguageStandard_C>
+      <Optimization>Disabled</Optimization>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -146,6 +147,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Drawing.cpp" />
+    <ClCompile Include="HeadersAndUtilities\Functions.cpp" />
+    <ClCompile Include="HeadersAndUtilities\Settings.cpp" />
     <ClCompile Include="ImGui\imgui.cpp" />
     <ClCompile Include="ImGui\imgui_demo.cpp" />
     <ClCompile Include="ImGui\imgui_draw.cpp" />
@@ -154,6 +157,8 @@
     <ClCompile Include="ImGui\imgui_stdlib.cpp" />
     <ClCompile Include="ImGui\imgui_tables.cpp" />
     <ClCompile Include="ImGui\imgui_widgets.cpp" />
+    <ClCompile Include="Library\InitializationAndVariables.cpp" />
+    <ClCompile Include="Library\Tabs.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="UI.cpp" />
   </ItemGroup>
@@ -192,7 +197,10 @@
     <ClInclude Include="bit7z\bittypes.hpp" />
     <ClInclude Include="bit7z\bitwindows.hpp" />
     <ClInclude Include="Drawing.h" />
-    <ClInclude Include="FunctionsAndSettings.h" />
+    <ClInclude Include="HeadersAndUtilities\Functions.h" />
+    <ClInclude Include="HeadersAndUtilities\Settings.h" />
+    <ClInclude Include="HeadersAndUtilities\InitializationAndVariables.h" />
+    <ClInclude Include="HeadersAndUtilities\Tabs.h" />
     <ClInclude Include="ImGui\imconfig.h" />
     <ClInclude Include="ImGui\imfilebrowser.h" />
     <ClInclude Include="ImGui\imgui.h" />

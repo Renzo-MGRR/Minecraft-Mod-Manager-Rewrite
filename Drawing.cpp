@@ -1,5 +1,7 @@
 #include "Drawing.h"
-#include "FunctionsAndSettings.h"
+#include "HeadersAndUtilities\Settings.h"
+#include "HeadersAndUtilities\Tabs.h"
+#include "HeadersAndUtilities\InitializationAndVariables.h"
 #include <chrono>
 #include <thread>
 #include <string>
@@ -13,7 +15,7 @@ bool Drawing::bDraw = true;
 void Drawing::Active() { bDraw = true; }
 bool Drawing::isActive() { return bDraw == true; }
 
-bool Init = false;
+bool Init = true;
 
 float x = iniReader.ReadFloat("Settings", "WindowXSize", 500);
 float y = iniReader.ReadFloat("Settings", "WindowYSize", 500);
@@ -44,10 +46,7 @@ void Drawing::Draw()
 			{
 				if (ImGui::BeginTabItem("Profiles"))
 				{
-					ImGui::Text("Current Profile:");
-					ImGui::SameLine();
-					Combo(GetProfiles(), 1);
-					ImGui::EndTabItem();
+					ProfilesTab();
 				}
 				ImGui::EndTabBar();
 			}

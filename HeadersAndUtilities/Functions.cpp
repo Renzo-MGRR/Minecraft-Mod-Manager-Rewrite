@@ -1,4 +1,4 @@
-#pragma once
+#include <thread>
 #include <string>
 #include <fstream>
 #include <ShlObj.h>
@@ -6,10 +6,11 @@
 #include <vector>
 #include <filesystem>
 #include "Shlwapi.h"
-#include "bit7z\bitarchivereader.hpp"
-#include "bit7z\bitfileextractor.hpp"
-#include "ImGui\imgui_stdlib.h"
-#include "IniReader\IniReader.h"
+#include "..\bit7z\bitarchivereader.hpp"
+#include "..\bit7z\bitfileextractor.hpp"
+#include "..\ImGui\imgui.h"
+#include "..\ImGui\imgui_stdlib.h"
+#include "Settings.h"
 namespace fs = std::filesystem;
 
 std::wstring GetCurrentFolder()
@@ -19,14 +20,6 @@ std::wstring GetCurrentFolder()
 	std::wstring WStrCurrentDirectory = CurrentFolder;
 	return WStrCurrentDirectory;
 }
-
-CIniReader iniReader("Settings.ini");
-struct IniSettings {
-	bool EnableLog = iniReader.ReadBoolean("Settings", "EnableLogs", true);
-	bool ResetLog = iniReader.ReadBoolean("Settings", "ResetLogOnStartup", true);
-	std::wstring LogName = L"Log.log";
-};
-IniSettings Settings;
 
 void WriteToLog(const std::wstring& LoggingLine)
 {
@@ -155,7 +148,7 @@ void DownloadFile(std::wstring file, std::string url)
 				curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
 				CURLcode res = curl_easy_perform(curl);
 				g_Status.isDownloading = true;
-				g_Status.currentFileName = L"Downloading asset: " + file;
+				g_Status.currentFileName = file;
 				if (res != CURLE_OK) {
 					if (fs::exists(file))
 					{
@@ -205,7 +198,7 @@ void DownloadBar()
 	}
 }
 
-void Combo(std::vector<std::wstring> Vector, int id, int VectorSelectedIndex = 0)
+void Combo(std::vector<std::wstring> Vector, int id, int VectorSelectedIndex)
 {
 	if (ImGui::BeginCombo((wstring2string(L"##Combo" + std::to_wstring(id))).c_str(), (wstring2string(Vector[VectorSelectedIndex])).c_str()))
 	{
@@ -288,16 +281,20 @@ std::wstring GetAppData()
 }
 std::vector<std::wstring> GetProfiles()
 {
+	CurrentTask = L"Loading profiles...";
 	std::vector<std::wstring> Profiles = getInDirectoryW(GetAppData() + L"\\.minecraft\\profiles", true);
+	CurrentTask = L"";
 	return Profiles;
 }
-void Initialization()
+void CleanLog()
 {
 	if (Settings.ResetLog)
 	{
+		CurrentTask = L"Cleaning Log...";
 		if (fs::exists(GetCurrentFolder() + L"\\" + Settings.LogName))
 		{
 			fs::remove(GetCurrentFolder() + L"\\" + Settings.LogName);
 		}
+		CurrentTask = L"";
 	}
 }
