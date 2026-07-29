@@ -1,5 +1,4 @@
 #pragma once
-#include "InitializationAndVariables.h"
 #include "..\IniReader\IniReader.h"
 extern inline CIniReader iniReader("Settings.ini");
 struct IniSettings {

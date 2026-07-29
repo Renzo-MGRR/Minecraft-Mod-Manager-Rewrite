@@ -1,6 +1,5 @@
-#include "..\ImGui\imgui.h"
-#include "..\HeadersAndUtilities\InitializationAndVariables.h"
 #include "..\HeadersAndUtilities\Functions.h"
+#include <thread>
 void ProfilesTab()
 {
 	if (CurrentTask != L"")
@@ -12,7 +11,16 @@ void ProfilesTab()
 	if (!Profiles.empty())
 	{
 		ImGui::SameLine();
-		Combo(Profiles, 0);
+		ProfileCombo(Profiles, 0, ProfileIndex);
+		if (ImGui::Button("Reload profiles"))
+		{
+			std::thread([=]()
+			{
+				Profiles = GetProfiles();
+			}).detach();
+		}
+		Profile& CurrentProfile = Profiles[ProfileIndex];
+		ObjectList(CurrentProfile);
 	}
 	ImGui::EndTabItem();
 }

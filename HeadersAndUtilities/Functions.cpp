@@ -6,11 +6,9 @@
 #include <vector>
 #include <filesystem>
 #include "Shlwapi.h"
-#include "..\bit7z\bitarchivereader.hpp"
-#include "..\bit7z\bitfileextractor.hpp"
-#include "..\ImGui\imgui.h"
-#include "..\ImGui\imgui_stdlib.h"
 #include "Settings.h"
+#include "InitializationAndVariables.h"
+
 namespace fs = std::filesystem;
 
 std::wstring GetCurrentFolder()
@@ -218,6 +216,26 @@ void Combo(std::vector<std::wstring> Vector, int id, int VectorSelectedIndex)
 	}
 }
 
+void ProfileCombo(std::vector<Profile> Vector, int id, int VectorSelectedIndex)
+{
+	if (ImGui::BeginCombo((wstring2string(L"##Combo" + std::to_wstring(id))).c_str(), (wstring2string(Vector[VectorSelectedIndex].NameAndVersion)).c_str()))
+	{
+		for (int i = 0; i < Vector.size(); ++i)
+		{
+			const bool isSelected = (VectorSelectedIndex == i);
+			if (ImGui::Selectable((wstring2string(Vector[i].NameAndVersion)).c_str(), isSelected))
+			{
+				VectorSelectedIndex = i;
+			}
+			if (isSelected)
+			{
+				ImGui::SetItemDefaultFocus();
+			}
+		}
+		ImGui::EndCombo();
+	}
+}
+
 bool TextInput(std::wstring Description, std::string& StringHandler)
 {
 	ImGui::Text("%s", (wstring2string(Description)).c_str());
@@ -279,13 +297,373 @@ std::wstring GetAppData()
 	GetEnvironmentVariableW(L"APPDATA", appdata, MAX_PATH);
 	return appdata;
 }
-std::vector<std::wstring> GetProfiles()
+bool ProfilesFound(std::wstring ProfilesFile) 
+{
+	if (fs::exists(ProfilesFile) && !fs::is_empty(ProfilesFile)) // We check if launcher_profiles.json exists
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+bool ParseVersion(Profile& CurrentProfile, json& ProfileJson)
+{
+	CurrentProfile.Version = string2wstring(ProfileJson.value("lastVersionId", ""));
+	if (CurrentProfile.Version.find(L"fabric") != std::wstring::npos)
+	{
+		CurrentProfile.ModLoader = L"Fabric";
+	}
+	else if (CurrentProfile.Version.find(L"forge") != std::wstring::npos)
+	{
+		CurrentProfile.ModLoader = L"Forge";
+	}
+	else
+	{
+		return false; //We skip non-modded profiles
+	}
+	if (CurrentProfile.Version.find(L"+build") != std::wstring::npos) //Trim down to only game version
+	{
+		CurrentProfile.Version.erase(0, 31);
+	}
+	else
+	{
+		CurrentProfile.Version.erase(0, 21); 
+	}
+	return true;
+};
+
+std::wstring CombineNameAndVersion(Profile& CurrentProfile)
+{
+	std::wstring NameAndVersion = L"";
+	NameAndVersion = CurrentProfile.Name;
+	NameAndVersion.insert(NameAndVersion.size(), L" (");
+	NameAndVersion = NameAndVersion + CurrentProfile.Version;
+	NameAndVersion.insert(NameAndVersion.size(), L")");
+	// Example: fabric-loader-0.19.2-26.2 (26.2)
+	return NameAndVersion;
+}
+
+std::wstring JoinAuthorsFromJson(const json& ModJson)
+{
+	std::vector<std::string> authorStr;
+	std::string authorNJ = "";
+	if (ModJson.contains("authors") && ModJson["authors"].is_array())
+	{
+		for (auto& item : ModJson["authors"])
+		{
+			if (item.is_string())
+			{
+				authorStr.push_back(item.get<std::string>());
+			}
+			else if (item.is_object() && item.contains("name"))
+			{
+				authorStr.push_back(item["name"].get<std::string>());
+			}
+		}
+	}
+	for (size_t i = 0; i < authorStr.size(); ++i)
+	{
+		authorNJ += authorStr[i];
+		if (i < authorStr.size() - 1)
+		{
+			authorNJ += ", ";
+		}
+	}
+	return string2wstring(authorNJ);
+}
+
+Object GetModInfo(std::wstring& CurrentModFile, std::wstring& CurrentModsDir, bool Enabled)
+{
+	Object Mod;
+	Mod.FileName = CurrentModFile;
+	std::vector<bit7z::byte_t> ModBuffer;
+	SevenZip.extractMatching(wstring2string(CurrentModsDir + L"\\" + Mod.FileName), "fabric.mod.json", ModBuffer);
+	json ModJson = json::parse(ModBuffer);
+	Mod.Name = string2wstring(ModJson.value("name", ""));
+	if (Mod.Name.empty())
+	{
+		Mod.Name = Mod.FileName;
+	}
+	Mod.Description = string2wstring(ModJson.value("description", ""));
+	Mod.Version = string2wstring(ModJson.value("version", ""));
+	Mod.Authors = JoinAuthorsFromJson(ModJson);
+	Mod.IsEnabled = Enabled;
+	return Mod;
+}
+
+std::wstring ParseJsonTextArray(json& JsonArray)
+{
+	std::wstring Description;
+	try {
+		for (auto& [id, array] : JsonArray.items())
+		{
+			Description = Description + string2wstring(array.value("text", ""));
+		}
+	}
+	catch (json::exception& except)
+	{
+		WriteToLog(string2wstring(std::string(except.what())));
+	}
+	return Description;
+}
+
+Object GetResourcePackInfo(std::wstring& CurrentResourcePackFile, std::wstring& CurrentResourcePackDir, bool Enabled)
+{
+	Object ResourcePack;
+	ResourcePack.FileName = CurrentResourcePackFile;
+	ResourcePack.Name = ResourcePack.FileName;
+	std::vector<bit7z::byte_t> ResourcePackBuffer;
+	SevenZip.extractMatching(wstring2string(CurrentResourcePackDir + L"\\" + ResourcePack.FileName), "pack.mcmeta", ResourcePackBuffer);
+	json ResourcePackJson = json::parse(ResourcePackBuffer);
+	ResourcePack.Name = string2wstring(ResourcePackJson["pack"].value("name", ""));
+	if (ResourcePack.Name.empty())
+	{
+		ResourcePack.Name = ResourcePack.FileName;
+	}
+	if (!ResourcePackJson["pack"]["description"].is_array())
+	{
+		if (ResourcePackJson["pack"]["description"].value("fallback", "") == "")
+		{
+			ResourcePack.Description = string2wstring(ResourcePackJson["pack"]["description"].value("translate", ""));
+		}
+		else
+		{
+			ResourcePack.Description = string2wstring(ResourcePackJson["pack"]["description"].value("fallback", ""));
+		}
+	}
+	else
+	{
+		ResourcePack.Description = ParseJsonTextArray(ResourcePackJson["pack"]["description"]);
+	}
+	ResourcePack.IsEnabled = Enabled;
+	return ResourcePack;
+}
+
+ObjectStruct GetMods(Profile& CurrentProfile)
+{
+	CurrentTask = L"Getting profile mods...";
+	std::wstring& CurrentModsDir = CurrentProfile.ProfileDirs.ModsDir;
+	std::wstring& DisabledModsDir = CurrentProfile.ProfileDirs.DisabledModsDir;
+	std::vector<std::wstring> EnabledModFileList = getInDirectoryW(CurrentModsDir, false);
+	ObjectStruct Mods;
+	Mods.ObjectType = L"Mods";
+	for (std::wstring& CurrentModFile : EnabledModFileList)
+	{
+		Mods.ObjectVector.push_back(GetModInfo(CurrentModFile, CurrentModsDir, true));
+	}
+	std::vector<std::wstring> DisabledModFileList = getInDirectoryW(DisabledModsDir, false);
+	for (std::wstring& CurrentModFile : DisabledModFileList)
+	{
+		Mods.ObjectVector.push_back(GetModInfo(CurrentModFile, DisabledModsDir, false));
+	}
+	return Mods;
+}
+
+ObjectStruct GetResourcePacks(Profile& CurrentProfile)
+{
+	CurrentTask = L"Getting profile resource packs...";
+	std::wstring& CurrentResourcePacksDir = CurrentProfile.ProfileDirs.ResourcePacksDir;
+	std::wstring& DisabledResourcePacksDir = CurrentProfile.ProfileDirs.DisabledResourcePacksDir;
+	std::vector<std::wstring> EnabledResourcePackFileList = getInDirectoryW(CurrentResourcePacksDir, false);
+	ObjectStruct ResourcePacks;
+	ResourcePacks.ObjectType = L"Resource Packs";
+	for (std::wstring& CurrentResourcePackFile : EnabledResourcePackFileList)
+	{
+		ResourcePacks.ObjectVector.push_back(GetResourcePackInfo(CurrentResourcePackFile, CurrentResourcePacksDir, true));
+	}
+	std::vector<std::wstring> DisabledModFileList = getInDirectoryW(DisabledResourcePacksDir, false);
+	for (std::wstring& CurrentResourcePackFile : DisabledModFileList)
+	{
+		ResourcePacks.ObjectVector.push_back(GetResourcePackInfo(CurrentResourcePackFile, DisabledResourcePacksDir, false));
+	}
+	return ResourcePacks;
+}
+
+std::vector<ObjectStruct> GetObjectStruct(Profile& CurrentProfile)
+{
+	CurrentTask = L"Getting profile objects...";
+	std::vector<ObjectStruct> ObjectStruct;
+	ObjectStruct.push_back(GetMods(CurrentProfile));
+	ObjectStruct.push_back(GetResourcePacks(CurrentProfile));
+	return ObjectStruct;
+}
+
+ProfileDirectories CalculateProfileDirectories(json& ProfileJson)
+{
+	CurrentTask = L"Calculating profile directories...";
+	ProfileDirectories ProfileDirs;
+	ProfileDirs.ProfileDir = string2wstring(ProfileJson.value("gameDir", ""));
+	ProfileDirs.ModsDir = ProfileDirs.ProfileDir + L"\\mods";
+	ProfileDirs.DisabledModsDir = ProfileDirs.ModsDir + L"\\Disabled Mods";
+	ProfileDirs.ResourcePacksDir = ProfileDirs.ProfileDir + L"\\resourcepacks";
+	ProfileDirs.DisabledResourcePacksDir = ProfileDirs.ResourcePacksDir + L"\\Disabled Resource Packs";
+	ProfileDirs.ShaderPacksDir = ProfileDirs.ProfileDir + L"\\shaderpacks";
+	ProfileDirs.DisabledShaderPacksDir = ProfileDirs.ShaderPacksDir + L"\\Disabled Shader Packs";
+	return ProfileDirs;
+}
+std::vector<ImGui::FileBrowser> GetFileBrowserVector(Profile& CurrentProfile)
+{
+	std::vector<ImGui::FileBrowser> FileBrowserVector;
+	for (int i = 0; i < CurrentProfile.ObjectStruct.size(); i++)
+	{
+		ImGui::FileBrowser FileDialog(FileBrowserFlags);
+		FileDialog.SetTitle(("Add " + wstring2string(CurrentProfile.ObjectStruct[i].ObjectType)).c_str());
+		if (CurrentProfile.ObjectStruct[i].ObjectType == L"Mods")
+		{
+			FileDialog.SetTypeFilters({ ".jar" });
+		}
+		else
+		{
+			FileDialog.SetTypeFilters({ ".zip" });
+		}
+		FileBrowserVector.push_back(FileDialog);
+	}
+	return FileBrowserVector;
+}
+bool LoadModdedProfileData(Profile& CurrentProfile, json& ProfileJson, std::string Id)
+{
+	CurrentTask = L"Loading profile info...";
+	if (!ParseVersion(CurrentProfile, ProfileJson))
+	{
+		return false; //We skip non-modded profiles
+	}
+	CurrentProfile.Id = string2wstring(std::string(Id));
+	CurrentProfile.Name = string2wstring(ProfileJson.value("name", ""));
+	CurrentProfile.WsDate = string2wstring(ProfileJson.value("lastUsed", ""));
+	CurrentProfile.ProfileDirs = CalculateProfileDirectories(ProfileJson);
+	CurrentProfile.NameAndVersion = CombineNameAndVersion(CurrentProfile);
+	CurrentProfile.ObjectStruct = GetObjectStruct(CurrentProfile);
+	CurrentProfile.FileBrowserVector = GetFileBrowserVector(CurrentProfile);
+	return true;
+}
+
+std::vector<Profile> GetProfiles()
 {
 	CurrentTask = L"Loading profiles...";
-	std::vector<std::wstring> Profiles = getInDirectoryW(GetAppData() + L"\\.minecraft\\profiles", true);
+	std::vector<Profile> ProfilesVector;
+	if (ProfilesFound(ProfilesFile))
+	{
+		std::ifstream LauncherProfiles(wstring2string(ProfilesFile));
+		Profile CurrentProfile;
+		const std::string format = "%Y-%m-%d %H:%M:%S";
+		json data = json::parse(LauncherProfiles);
+		for (auto& [Id, ProfileJson] : data["profiles"].items())
+		{
+			if (!LoadModdedProfileData(CurrentProfile, ProfileJson, Id))
+			{
+				continue; // Non-modded profile
+			}
+			ProfilesVector.push_back(CurrentProfile);
+		}		
+	}
 	CurrentTask = L"";
-	return Profiles;
+	return ProfilesVector;
 }
+
+void DisableObject(ProfileDirectories& ProfileDirs, ObjectStruct& ObjectStruct, int ObjectIndex)
+{
+	if (ObjectStruct.ObjectVector[ObjectIndex].IsEnabled)
+	{
+		if (ObjectStruct.ObjectType == L"Mods")
+		{
+			fs::rename(ProfileDirs.DisabledModsDir + L"\\" + ObjectStruct.ObjectVector[ObjectIndex].FileName,
+				ProfileDirs.ModsDir + L"\\" + ObjectStruct.ObjectVector[ObjectIndex].FileName);
+		}
+		else if (ObjectStruct.ObjectType == L"Resource Packs")
+		{
+			fs::rename(ProfileDirs.DisabledResourcePacksDir + L"\\" + ObjectStruct.ObjectVector[ObjectIndex].FileName,
+				ProfileDirs.ResourcePacksDir + L"\\" + ObjectStruct.ObjectVector[ObjectIndex].FileName);
+		}
+		else // Shader Pack
+		{
+			fs::rename(ProfileDirs.DisabledShaderPacksDir + L"\\" + ObjectStruct.ObjectVector[ObjectIndex].FileName,
+				ProfileDirs.ShaderPacksDir + L"\\" + ObjectStruct.ObjectVector[ObjectIndex].FileName);
+		}
+	}
+	else
+	{
+		if (ObjectStruct.ObjectType == L"Mods")
+		{
+			fs::rename(ProfileDirs.ModsDir + L"\\" + ObjectStruct.ObjectVector[ObjectIndex].FileName,
+				ProfileDirs.DisabledModsDir + L"\\" + ObjectStruct.ObjectVector[ObjectIndex].FileName);
+		}
+		else if (ObjectStruct.ObjectType == L"Resource Packs")
+		{
+			fs::rename(ProfileDirs.ResourcePacksDir + L"\\" + ObjectStruct.ObjectVector[ObjectIndex].FileName,
+				ProfileDirs.DisabledResourcePacksDir + L"\\" + ObjectStruct.ObjectVector[ObjectIndex].FileName);
+		}
+		else // Shader Pack
+		{
+			fs::rename(ProfileDirs.ShaderPacksDir + L"\\" + ObjectStruct.ObjectVector[ObjectIndex].FileName,
+				ProfileDirs.DisabledShaderPacksDir + L"\\" + ObjectStruct.ObjectVector[ObjectIndex].FileName);
+		}
+	}
+}
+void ObjectList(Profile& CurrentProfile)
+{
+	std::vector<ObjectStruct>& ProfileObjectStruct = CurrentProfile.ObjectStruct;
+	std::vector<ImGui::FileBrowser>& ProfileFileBrowserVector = CurrentProfile.FileBrowserVector;
+	for (int POSIndex = 0; POSIndex < ProfileObjectStruct.size(); POSIndex++) //It should repeat only 3 times since there are only 3 objects but still
+	{
+		std::wstring& ObjectType = ProfileObjectStruct[POSIndex].ObjectType;
+		if (ImGui::CollapsingHeader((wstring2string(ObjectType) + "##" + std::to_string(POSIndex)).c_str()))
+		{
+			for (int i = 0; i < ProfileObjectStruct[POSIndex].ObjectVector.size(); i++) //We display each vector item data (Mods, Resource Packs, Shader Packs)
+			{
+				ImGui::Text("%s", (wstring2string(ProfileObjectStruct[POSIndex].ObjectVector[i].Name)).c_str());
+				ImGui::SameLine();
+				if (ImGui::Checkbox(("Enabled##" + wstring2string(ObjectType) + std::to_string(i)).c_str(), &ProfileObjectStruct[POSIndex].ObjectVector[i].IsEnabled))
+				{
+					DisableObject(CurrentProfile.ProfileDirs, ProfileObjectStruct[POSIndex], i);
+				}
+				ImGui::SameLine();
+				if (ImGui::Button(("Details##" + wstring2string(ObjectType) + std::to_string(i)).c_str()))
+				{
+					ImGui::OpenPopup(("DetailsPopup##" + wstring2string(ObjectType) + std::to_string(i)).c_str());
+				}
+				if (ImGui::BeginPopup(("DetailsPopup##" + wstring2string(ObjectType) + std::to_string(i)).c_str()))
+				{
+					ImGui::Text("Description: %s", (wstring2string(ProfileObjectStruct[POSIndex].ObjectVector[i].Description).c_str()));
+					ImGui::Text("Version: %s", (wstring2string(ProfileObjectStruct[POSIndex].ObjectVector[i].Version).c_str()));
+					ImGui::Text("Author(s): %s", (wstring2string(ProfileObjectStruct[POSIndex].ObjectVector[i].Authors).c_str()));
+					ImGui::EndPopup();
+				}
+			}
+			if (ImGui::Button(("Add " + wstring2string(ObjectType) + "##" + std::to_string(POSIndex)).c_str()))
+			{
+				ProfileFileBrowserVector[POSIndex].Open();
+			}
+			ProfileFileBrowserVector[POSIndex].Display();
+			if (ProfileFileBrowserVector[POSIndex].HasSelected())
+			{
+				for (fs::path& CurrentFile : ProfileFileBrowserVector[POSIndex].GetMultiSelected())
+				{
+					std::wstring wsFile = CurrentFile.wstring();
+					std::wstring ParentPath = CurrentFile.parent_path().wstring();
+					std::wstring Filename = CurrentFile.filename().wstring();
+					Object NewObject;
+					if (ObjectType == L"Mods")
+					{
+						fs::copy(wsFile, CurrentProfile.ProfileDirs.ModsDir + L"\\" + Filename, fs::copy_options::skip_existing);
+						NewObject = GetModInfo(Filename, ParentPath, true);
+					}
+					else if (ObjectType == L"Resource Packs")
+					{
+						fs::copy(wsFile, CurrentProfile.ProfileDirs.ResourcePacksDir + L"\\" + Filename, fs::copy_options::skip_existing);
+						NewObject = GetResourcePackInfo(wsFile, ParentPath, true);
+					}
+					ProfileObjectStruct[POSIndex].ObjectVector.insert(ProfileObjectStruct[POSIndex].ObjectVector.begin(), NewObject); 
+					//We insert the object into the vector to not fully reload profiles
+					ProfileFileBrowserVector[POSIndex].ClearSelected();
+				}
+			}
+		}
+	}
+}
+
 void CleanLog()
 {
 	if (Settings.ResetLog)

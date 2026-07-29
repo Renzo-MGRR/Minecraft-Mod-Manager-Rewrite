@@ -3,7 +3,7 @@
 #include <curl/curl.h>
 #include "..\bit7z\bitarchivereader.hpp"
 #include "..\bit7z\bitfileextractor.hpp"
-namespace fs = std::filesystem;
+#include "InitializationAndVariables.h"
 
 std::wstring GetCurrentFolder();
 
@@ -33,12 +33,34 @@ void DownloadBar();
 
 void Combo(std::vector<std::wstring> Vector, int id, int VectorSelectedIndex = 0);
 
+void ProfileCombo(std::vector<Profile> Vector, int id, int VectorSelectedIndex = 0);
+
 bool TextInput(std::wstring Description, std::string& StringHandler);
 
 void Execute(const std::wstring& cmdLine, const std::wstring& RunFrom, bool Silent, bool WaitTillFinish);
 
 std::wstring GetAppData();
 
-std::vector<std::wstring> GetProfiles();
+ObjectStruct GetMods(Profile& CurrentProfile);
+
+bool LoadModdedProfileData(Profile& CurrentProfile, json& ProfileJson, std::string Id);
+
+ObjectStruct GetResourcePacks(Profile& CurrentProfile);
+
+std::vector<Profile> GetProfiles();
+
+bool ProfilesFound(std::wstring ProfilesFile);
+
+bool ParseVersion(Profile& CurrentProfile, json& profile);
+
+std::wstring CombineNameAndVersion(Profile& CurrentProfile);
+
+std::wstring JoinAuthorsFromJson(const json& ModJson);
+
+ProfileDirectories CalculateProfileDirectories(json& ProfileJson);
+
+void DisableObject(ProfileDirectories& ProfileDirs, ObjectStruct& ObjectVector, int ObjectIndex);
+
+void ObjectList(Profile& CurrentProfile);
 
 void CleanLog();

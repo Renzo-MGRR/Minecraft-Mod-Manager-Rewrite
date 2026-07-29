@@ -1,14 +1,12 @@
 #include "Drawing.h"
 #include "HeadersAndUtilities\Settings.h"
 #include "HeadersAndUtilities\Tabs.h"
-#include "HeadersAndUtilities\InitializationAndVariables.h"
 #include <chrono>
 #include <thread>
 #include <string>
 #include "ImGui\imgui_stdlib.h"
 #include "ImGui\imfilebrowser.h"
 
-namespace fs = std::filesystem;
 LPCSTR Drawing::lpWindowName = "Minecraft Mod Manager";
 ImGuiWindowFlags Drawing::WindowFlags = 0;
 bool Drawing::bDraw = true;
