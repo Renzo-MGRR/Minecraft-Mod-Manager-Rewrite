@@ -34,32 +34,7 @@ void SettingsTab()
 			ImGui::SameLine();
 			if (ImGui::Checkbox(("##" + std::to_string(i)).c_str(), &Settings.GlobalObjectTypes[i].IsEnabled))
 			{
-				std::wstring NewAvailableObjectTypes;
-				for (Profile& CurrentProfile : Profiles)
-				{
-					for (ObjectStruct& CurrentObjectStruct : CurrentProfile.ObjectStruct)
-					{
-						if (Settings.GlobalObjectTypes[i].Type == CurrentObjectStruct.ObjectType.Type)
-						{
-							CurrentObjectStruct.ObjectType.IsEnabled = Settings.GlobalObjectTypes[i].IsEnabled;
-						}
-					}
-				}
-				for (int j = 0; j < Settings.GlobalObjectTypes.size(); j++)
-				{
-					if (Settings.GlobalObjectTypes[j].IsEnabled)
-					{
-						if (j != Settings.GlobalObjectTypes.size() - 1)
-						{
-							NewAvailableObjectTypes = NewAvailableObjectTypes + Settings.GlobalObjectTypes[j].Type + L','; //If it's the last item, skip the ',' character
-						}
-						else
-						{
-							NewAvailableObjectTypes = NewAvailableObjectTypes + Settings.GlobalObjectTypes[j].Type;
-						}
-					}
-				}
-				iniReader.WriteString("Settings", "EnabledObjectTypes", wstring2string(NewAvailableObjectTypes));
+				ChangeObjectTypeAvailability(Settings.GlobalObjectTypes[i]);
 			}
 		}
 	}

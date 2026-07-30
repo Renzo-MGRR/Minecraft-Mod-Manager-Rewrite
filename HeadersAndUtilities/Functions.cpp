@@ -549,6 +549,36 @@ std::vector<ObjectStruct> GetObjectStruct(Profile& CurrentProfile)
 	return ObjectStruct;
 }
 
+void ChangeObjectTypeAvailability(ObjectType& ObjectType)
+{
+	std::wstring NewAvailableObjectTypes;
+	for (Profile& CurrentProfile : Profiles)
+	{
+		for (ObjectStruct& CurrentObjectStruct : CurrentProfile.ObjectStruct)
+		{
+			if (ObjectType.Type == CurrentObjectStruct.ObjectType.Type)
+			{
+				CurrentObjectStruct.ObjectType.IsEnabled = ObjectType.IsEnabled;
+			}
+		}
+	}
+	for (int j = 0; j < Settings.GlobalObjectTypes.size(); j++)
+	{
+		if (Settings.GlobalObjectTypes[j].IsEnabled)
+		{
+			if (j != Settings.GlobalObjectTypes.size() - 1)
+			{
+				NewAvailableObjectTypes = NewAvailableObjectTypes + Settings.GlobalObjectTypes[j].Type + L','; //If it's the last item, skip the ',' character
+			}
+			else
+			{
+				NewAvailableObjectTypes = NewAvailableObjectTypes + Settings.GlobalObjectTypes[j].Type;
+			}
+		}
+	}
+	iniReader.WriteString("Settings", "EnabledObjectTypes", wstring2string(NewAvailableObjectTypes));
+}
+
 ProfileDirectories CalculateProfileDirectories(json& ProfileJson)
 {
 	CurrentTask = L"Calculating profile directories...";

@@ -6,6 +6,9 @@
 #include "InitializationAndVariables.h"
 #include "..\IniReader\IniReader.h"
 #include "Settings.h"
+
+void ChangeObjectTypeAvailability(ObjectType& ObjectType);
+
 std::vector<ObjectType> GetAvailableObjectTypes(CIniReader& IniReaderObject);
 
 std::wstring GetCurrentFolder();
