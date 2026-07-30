@@ -1,6 +1,7 @@
 #pragma once
 #include <thread>
 #include "..\HeadersAndUtilities\Functions.h"
+#include "..\HeadersAndUtilities\Settings.h"
 std::wstring CurrentTask = L"";
 std::wstring MinecraftDir = L"";
 std::wstring ProfilesFile = L"";
@@ -14,6 +15,7 @@ void Initialization()
 	{
 		MinecraftDir = GetAppData() + L"\\.minecraft";
 		ProfilesFile = MinecraftDir + L"\\launcher_profiles.json";
+		Settings.GlobalObjectTypes = GetAvailableObjectTypes(iniReader);
 		Profiles = GetProfiles();
 		CleanLog();
 	}).detach();

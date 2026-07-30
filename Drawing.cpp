@@ -45,6 +45,12 @@ void Drawing::Draw()
 				if (ImGui::BeginTabItem("Profiles"))
 				{
 					ProfilesTab();
+					ImGui::EndTabItem();
+				}
+				if (ImGui::BeginTabItem("Settings"))
+				{
+					SettingsTab();
+					ImGui::EndTabItem();
 				}
 				ImGui::EndTabBar();
 			}

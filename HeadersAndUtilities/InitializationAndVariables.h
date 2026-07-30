@@ -7,16 +7,19 @@
 #include "..\ImGui\imgui.h"
 #include "..\ImGui\imfilebrowser.h"
 #include "..\ImGui\imgui_stdlib.h"
+#include "Settings.h"
 extern std::wstring CurrentTask;
 extern bit7z::Bit7zLibrary lib;
 extern bit7z::BitFileExtractor SevenZip;
+extern inline std::vector<std::wstring> AllObjectTypes = { L"Mods", L"Resource Packs", L"Shader Packs" };
+extern inline std::wstring wsAllObjectTypes = L"Mods,Resource Packs,Shader Packs";
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 extern inline int FileBrowserFlags = ImGuiFileBrowserFlags_MultipleSelection | ImGuiFileBrowserFlags_CloseOnEsc;
 struct Object {
 	std::wstring FileName;
 	std::wstring Name;
-	bool IsEnabled = true;
+	bool IsEnabled;
 	std::wstring Authors;
 	std::wstring Description;
 	std::wstring Version;
@@ -33,7 +36,7 @@ struct ProfileDirectories {
 struct ObjectStruct
 {
 	std::vector<Object> ObjectVector;
-	std::wstring ObjectType; //Objects can be Mods, Resource Packs or Shaders
+	ObjectType ObjectType;
 };
 struct Profile {
 	std::wstring Id;
@@ -44,7 +47,7 @@ struct Profile {
 	ProfileDirectories ProfileDirs;
 	std::wstring ModLoader;
 	std::vector<ObjectStruct> ObjectStruct; //We store all objects into a vector of vectors
-	int Date = 0;
+	//int Date;
 	std::vector<ImGui::FileBrowser> FileBrowserVector;
 };
 extern std::vector<Profile> Profiles;

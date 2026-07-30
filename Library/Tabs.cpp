@@ -1,5 +1,6 @@
 #include "..\HeadersAndUtilities\Functions.h"
 #include <thread>
+#include "..\HeadersAndUtilities\Settings.h"
 void ProfilesTab()
 {
 	if (CurrentTask != L"")
@@ -22,5 +23,44 @@ void ProfilesTab()
 		Profile& CurrentProfile = Profiles[ProfileIndex];
 		ObjectList(CurrentProfile);
 	}
-	ImGui::EndTabItem();
+}
+void SettingsTab()
+{
+	if (ImGui::CollapsingHeader("Objects to show per profile"))
+	{
+		for (int i = 0; i < Settings.GlobalObjectTypes.size(); i++)
+		{
+			ImGui::Text("%s", (wstring2string(AllObjectTypes[i])).c_str());
+			ImGui::SameLine();
+			if (ImGui::Checkbox(("##" + std::to_string(i)).c_str(), &Settings.GlobalObjectTypes[i].IsEnabled))
+			{
+				std::wstring NewAvailableObjectTypes;
+				for (Profile& CurrentProfile : Profiles)
+				{
+					for (ObjectStruct& CurrentObjectStruct : CurrentProfile.ObjectStruct)
+					{
+						if (Settings.GlobalObjectTypes[i].Type == CurrentObjectStruct.ObjectType.Type)
+						{
+							CurrentObjectStruct.ObjectType.IsEnabled = Settings.GlobalObjectTypes[i].IsEnabled;
+						}
+					}
+				}
+				for (int j = 0; j < Settings.GlobalObjectTypes.size(); j++)
+				{
+					if (Settings.GlobalObjectTypes[j].IsEnabled)
+					{
+						if (j != Settings.GlobalObjectTypes.size() - 1)
+						{
+							NewAvailableObjectTypes = NewAvailableObjectTypes + Settings.GlobalObjectTypes[j].Type + L','; //If it's the last item, skip the ',' character
+						}
+						else
+						{
+							NewAvailableObjectTypes = NewAvailableObjectTypes + Settings.GlobalObjectTypes[j].Type;
+						}
+					}
+				}
+				iniReader.WriteString("Settings", "EnabledObjectTypes", wstring2string(NewAvailableObjectTypes));
+			}
+		}
+	}
 }

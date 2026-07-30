@@ -4,6 +4,9 @@
 #include "..\bit7z\bitarchivereader.hpp"
 #include "..\bit7z\bitfileextractor.hpp"
 #include "InitializationAndVariables.h"
+#include "..\IniReader\IniReader.h"
+#include "Settings.h"
+std::vector<ObjectType> GetAvailableObjectTypes(CIniReader& IniReaderObject);
 
 std::wstring GetCurrentFolder();
 
