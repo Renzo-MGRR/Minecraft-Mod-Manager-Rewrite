@@ -8,6 +8,10 @@ void ProfilesTab()
 		ImGui::Text("%s", wstring2string(CurrentTask).c_str()); // Show current task (such as "Loading profiles") from thread 
 	// instead of not showing anything or freezing
 	}
+	if (ImGui::Button("Open Fabric Installer"))
+	{
+		OpenFabricInstaller();
+	}
 	ImGui::Text("Current Profile:");
 	if (!Profiles.empty())
 	{

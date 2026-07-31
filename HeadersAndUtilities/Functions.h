@@ -7,6 +7,8 @@
 #include "..\IniReader\IniReader.h"
 #include "Settings.h"
 
+void OpenFabricInstaller();
+
 void ChangeObjectTypeAvailability(ObjectType& ObjectType);
 
 std::vector<ObjectType> GetAvailableObjectTypes(CIniReader& IniReaderObject);
@@ -47,11 +49,7 @@ void Execute(const std::wstring& cmdLine, const std::wstring& RunFrom, bool Sile
 
 std::wstring GetAppData();
 
-ObjectStruct GetMods(Profile& CurrentProfile);
-
 bool LoadModdedProfileData(Profile& CurrentProfile, json& ProfileJson, std::string Id);
-
-ObjectStruct GetResourcePacks(Profile& CurrentProfile);
 
 std::vector<Profile> GetProfiles();
 

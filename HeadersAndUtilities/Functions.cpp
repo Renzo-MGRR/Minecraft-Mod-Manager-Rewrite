@@ -8,8 +8,30 @@
 #include "Shlwapi.h"
 #include "Settings.h"
 #include "InitializationAndVariables.h"
-
+#include <errno.h>
 namespace fs = std::filesystem;
+
+std::wstring GetAppData()
+{
+	wchar_t appdata[MAX_PATH];
+	GetEnvironmentVariableW(L"APPDATA", appdata, MAX_PATH);
+	return std::wstring(appdata);
+}
+std::wstring GetCurrentFolder()
+{
+	wchar_t CurrentFolder[MAX_PATH];
+	GetCurrentDirectoryW(MAX_PATH, CurrentFolder);
+	return std::wstring(CurrentFolder);
+}
+std::wstring GetDownloadsFolder()
+{
+	std::wstring DownloadFolder;
+	wchar_t userfolder[MAX_PATH];
+	GetEnvironmentVariableW(L"USERPROFILE", userfolder, MAX_PATH);
+	DownloadFolder = std::wstring(userfolder) + L"\\Downloads";
+	return DownloadFolder;
+}
+
 std::wstring string2wstring(const std::string& str) {
 	if (str.empty()) return std::wstring();
 	int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
@@ -77,14 +99,6 @@ std::vector<ObjectType> GetAvailableObjectTypes(CIniReader& IniReaderObject)
 	return AvailableObjectTypesVector;
 }
 
-std::wstring GetCurrentFolder()
-{
-	wchar_t CurrentFolder[MAX_PATH];
-	GetCurrentDirectoryW(MAX_PATH, CurrentFolder);
-	std::wstring WStrCurrentDirectory = CurrentFolder;
-	return WStrCurrentDirectory;
-}
-
 void WriteToLog(const std::wstring& LoggingLine)
 {
 	if (Settings.EnableLog)
@@ -106,11 +120,6 @@ bool IsFileAccessible(const std::string& filename)
 {
 	std::ifstream file(filename);
 	return file.good();
-}
-
-static size_t WriteData(void* ptr, size_t size, size_t nmemb, FILE* stream) { //Writes file to a void pointer
-	size_t written = fwrite(ptr, size, nmemb, stream);
-	return written;
 }
 
 struct DownloadStatus {
@@ -174,42 +183,6 @@ std::vector<std::wstring> getAllInDirectoryW(const std::wstring& directory)
 	FindClose(hFind);
 
 	return files;
-}
-
-void DownloadFile(std::wstring file, std::string url)
-{
-	if (fs::exists(file))
-	{
-		CURL* curl = curl_easy_init();
-		if (curl) {
-			curl_easy_setopt(curl, CURLOPT_URL, url);
-			FILE* fp = _wfopen((file).c_str(), L"wb");
-			if (fp == NULL) {
-				perror("File open failed");
-				return;
-			}
-			if (fp) {
-				curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, ProgressCallback);
-				curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-				curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteData);
-				curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
-				curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-				curl_easy_setopt(curl, CURLOPT_USERAGENT, "libcurl-agent/1.0");
-				curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-				CURLcode res = curl_easy_perform(curl);
-				g_Status.isDownloading = true;
-				g_Status.currentFileName = file;
-				if (res != CURLE_OK) {
-					if (fs::exists(file))
-					{
-						fs::remove(file);
-					}
-				}
-				fclose(fp);
-			}
-			curl_easy_cleanup(curl);
-		}
-	}
 }
 
 std::vector<bit7z::byte_t> ExtractToMemory(std::wstring extractFrom, std::wstring fileToGet)
@@ -343,12 +316,6 @@ void Execute(const std::wstring& cmdLine, const std::wstring& RunFrom, bool Sile
 	CloseHandle(pi.hThread);
 }
 
-std::wstring GetAppData()
-{
-	wchar_t appdata[MAX_PATH];
-	GetEnvironmentVariableW(L"APPDATA", appdata, MAX_PATH);
-	return appdata;
-}
 bool ProfilesFound(std::wstring ProfilesFile) 
 {
 	if (fs::exists(ProfilesFile) && !fs::is_empty(ProfilesFile)) // We check if launcher_profiles.json exists
@@ -592,6 +559,7 @@ ProfileDirectories CalculateProfileDirectories(json& ProfileJson)
 	ProfileDirs.DisabledShaderPacksDir = ProfileDirs.ShaderPacksDir + L"\\Disabled Shader Packs";
 	return ProfileDirs;
 }
+
 std::vector<ImGui::FileBrowser> GetFileBrowserVector(Profile& CurrentProfile)
 {
 	std::vector<ImGui::FileBrowser> FileBrowserVector;
@@ -599,6 +567,7 @@ std::vector<ImGui::FileBrowser> GetFileBrowserVector(Profile& CurrentProfile)
 	{
 		ImGui::FileBrowser FileDialog(FileBrowserFlags);
 		FileDialog.SetTitle(("Add " + wstring2string(CurrentProfile.ObjectStruct[i].ObjectType.Type)).c_str());
+		FileDialog.SetDirectory(GetDownloadsFolder());
 		if (CurrentProfile.ObjectStruct[i].ObjectType.Type == L"Mods")
 		{
 			FileDialog.SetTypeFilters({ ".jar" });
@@ -760,6 +729,158 @@ void ObjectList(Profile& CurrentProfile)
 			}
 		}
 	}
+}
+std::string extractBetweenDelimiters(const std::string& str, const std::string& start_delim, const std::string& end_delim) {
+	size_t first_delim_pos = str.find(start_delim);
+
+	if (first_delim_pos == std::string::npos) {
+		return "";
+	}
+	size_t start_pos = first_delim_pos + start_delim.length();
+	size_t second_delim_pos = str.find(end_delim, start_pos);
+	if (second_delim_pos == std::string::npos) {
+		return "";
+	}
+	size_t length = second_delim_pos - start_pos;
+	return str.substr(start_pos, length);
+}
+static size_t WriteToMemory(void* contents, size_t size, size_t nmemb, void* userp)
+{
+	size_t realsize = size * nmemb;
+	std::string* buf = static_cast<std::string*>(userp);
+	buf->append(static_cast<char*>(contents), realsize);
+	return realsize;
+}
+static size_t WriteData(void* ptr, size_t size, size_t nmemb, FILE* stream) {
+	size_t written = fwrite(ptr, size, nmemb, stream);
+	return written;
+}
+
+FILE* SetCURLOptions(CURL* curlobj, std::wstring File, std::string* MemoryBuffer, std::string& URL)
+{
+	curl_easy_setopt(curlobj, CURLOPT_URL, URL.c_str());
+	curl_easy_setopt(curlobj, CURLOPT_XFERINFOFUNCTION, ProgressCallback);
+	curl_easy_setopt(curlobj, CURLOPT_NOPROGRESS, 0L);
+	std::string sFile = wstring2string(File);
+	FILE* FileObj = NULL;
+	if (File != L"")
+	{
+		FileObj = fopen(sFile.c_str(), "wb");
+		if (FileObj == NULL) {
+			WriteToLog(string2wstring(strerror(errno)));
+			return FileObj;
+		}
+		curl_easy_setopt(curlobj, CURLOPT_WRITEFUNCTION, WriteData);
+		curl_easy_setopt(curlobj, CURLOPT_WRITEDATA, FileObj);
+	}
+	else
+	{
+		curl_easy_setopt(curlobj, CURLOPT_WRITEFUNCTION, WriteToMemory);
+		curl_easy_setopt(curlobj, CURLOPT_WRITEDATA, MemoryBuffer);
+	}
+	curl_easy_setopt(curlobj, CURLOPT_FOLLOWLOCATION, 1L);
+	curl_easy_setopt(curlobj, CURLOPT_USERAGENT, "libcurl-agent/1.0");
+	curl_easy_setopt(curlobj, CURLOPT_SSL_VERIFYPEER, 0L);
+	return FileObj;
+}
+
+void DownloadFile(std::string URL, std::wstring File, std::string& MemoryBuffer)
+{
+	CURL* curl = curl_easy_init();
+	if (curl) {
+		if (File != L"")
+		{
+			bool Download = false;
+			if (!fs::exists(GetCurrentFolder() + L"\\" + File))
+			{
+				Download = true;
+			}
+			else if (fs::is_empty(GetCurrentFolder() + L"\\" + File))
+			{
+				Download = true;
+			}
+			if (Download)
+			{
+				std::string sFile = wstring2string(File);
+				FILE* FileObj = SetCURLOptions(curl, File, &MemoryBuffer, URL);
+				if (FileObj != NULL)
+				{
+					CURLcode res = curl_easy_perform(curl);
+					fclose(FileObj);
+					if (res != CURLE_OK) {
+						if (fs::exists(File))
+						{
+							fs::remove(File);
+						}
+					}
+					
+				}
+				curl_easy_cleanup(curl);
+			}
+		}
+		else
+		{
+			SetCURLOptions(curl, File, &MemoryBuffer, URL);
+			CURLcode res = curl_easy_perform(curl);
+			curl_easy_cleanup(curl);
+		}
+	}
+}
+
+std::vector<std::string> GetFabricInstallerVersions(std::string Filecontents)
+{
+	std::istringstream File(Filecontents);
+	std::vector<std::string> FabricInstallerVersions;
+	std::string currin;
+	while (std::getline(File, currin)) {
+		if (currin.find("href=") != std::string::npos && currin.find("<h1>") == std::string::npos && currin.find("maven") == std::string::npos)
+		{
+			FabricInstallerVersions.push_back(currin);
+		}
+	}
+	return FabricInstallerVersions;
+}
+
+void OpenFabricInstaller()
+{
+	std::thread([=]()
+		{
+			std::string FileInMemory = "";
+			DownloadFile("https://maven.fabricmc.net/net/fabricmc/fabric-installer/", L"", FileInMemory);
+			std::vector<std::string> FabricInstallerVersions = GetFabricInstallerVersions(FileInMemory);
+			FileInMemory = ""; //We clean the file in memory just in case
+			if (!FabricInstallerVersions.empty())
+			{
+				std::string VersionToInstall = extractBetweenDelimiters(FabricInstallerVersions[FabricInstallerVersions.size() - 1], R"(")", R"(/)");
+				std::string FabricInstaller = "fabric-installer-" + VersionToInstall + ".exe";
+				std::string URL = "https://maven.fabricmc.net/net/fabricmc/fabric-installer/" + VersionToInstall + "/fabric-installer-" + VersionToInstall + ".exe";
+				if (fs::exists(FabricInstaller))
+				{
+					std::vector<std::wstring> DirFiles = getInDirectoryW(GetCurrentFolder(), false);
+					for (std::wstring File : DirFiles)
+					{
+						if (File.find(L"fabric-installer") != std::wstring::npos && File != string2wstring(FabricInstaller)) //Check for old fabric installers
+						{
+							fs::remove(File);
+							DownloadFile(URL, string2wstring(FabricInstaller), FileInMemory);
+						}
+						if (File == string2wstring(FabricInstaller))
+						{
+							if (fs::is_empty(FabricInstaller))
+							{
+								fs::remove(File);
+								DownloadFile(URL, string2wstring(FabricInstaller), FileInMemory);
+							}
+						}
+					}
+				}
+				else
+				{
+					DownloadFile(URL, string2wstring(FabricInstaller), FileInMemory);
+				}
+				Execute(string2wstring(FabricInstaller), GetCurrentFolder(), false, false);
+			}
+		}).detach();
 }
 
 void CleanLog()
