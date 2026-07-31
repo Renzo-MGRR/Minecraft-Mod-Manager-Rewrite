@@ -546,17 +546,40 @@ void ChangeObjectTypeAvailability(ObjectType& ObjectType)
 	iniReader.WriteString("Settings", "EnabledObjectTypes", wstring2string(NewAvailableObjectTypes));
 }
 
+void CreateIfNotExists(std::wstring& Folder)
+{
+	if (!fs::exists(Folder))
+	{
+		fs::create_directory(Folder);
+	}
+}
+
 ProfileDirectories CalculateProfileDirectories(json& ProfileJson)
 {
 	CurrentTask = L"Calculating profile directories...";
 	ProfileDirectories ProfileDirs;
 	ProfileDirs.ProfileDir = string2wstring(ProfileJson.value("gameDir", ""));
+	if (ProfileDirs.ProfileDir == L"")
+	{
+		ProfileDirs.ProfileDir = MinecraftDir + L"\\profiles\\" + string2wstring(ProfileJson.value("name", ""));
+		if (ProfileDirs.ProfileDir == L"")
+		{
+			ProfileDirs.ProfileDir = MinecraftDir + L"\\profiles\\Default";
+		}
+	}
+	CreateIfNotExists(ProfileDirs.ProfileDir);
 	ProfileDirs.ModsDir = ProfileDirs.ProfileDir + L"\\mods";
-	ProfileDirs.DisabledModsDir = ProfileDirs.ModsDir + L"\\Disabled Mods";
+	CreateIfNotExists(ProfileDirs.ModsDir);
+	ProfileDirs.DisabledModsDir = ProfileDirs.ModsDir + L"\\Disabled";
+	CreateIfNotExists(ProfileDirs.DisabledModsDir);
 	ProfileDirs.ResourcePacksDir = ProfileDirs.ProfileDir + L"\\resourcepacks";
-	ProfileDirs.DisabledResourcePacksDir = ProfileDirs.ResourcePacksDir + L"\\Disabled Resource Packs";
+	CreateIfNotExists(ProfileDirs.ResourcePacksDir);
+	ProfileDirs.DisabledResourcePacksDir = ProfileDirs.ResourcePacksDir + L"\\Disabled";
+	CreateIfNotExists(ProfileDirs.DisabledResourcePacksDir);
 	ProfileDirs.ShaderPacksDir = ProfileDirs.ProfileDir + L"\\shaderpacks";
-	ProfileDirs.DisabledShaderPacksDir = ProfileDirs.ShaderPacksDir + L"\\Disabled Shader Packs";
+	CreateIfNotExists(ProfileDirs.ShaderPacksDir);
+	ProfileDirs.DisabledShaderPacksDir = ProfileDirs.ShaderPacksDir + L"\\Disabled";
+	CreateIfNotExists(ProfileDirs.DisabledShaderPacksDir);
 	return ProfileDirs;
 }
 
@@ -580,6 +603,7 @@ std::vector<ImGui::FileBrowser> GetFileBrowserVector(Profile& CurrentProfile)
 	}
 	return FileBrowserVector;
 }
+
 bool LoadModdedProfileData(Profile& CurrentProfile, json& ProfileJson, std::string Id)
 {
 	CurrentTask = L"Loading profile info...";
