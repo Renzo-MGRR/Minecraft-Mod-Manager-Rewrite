@@ -4,6 +4,7 @@ extern inline CIniReader iniReader("Settings.ini");
 struct ObjectType {
 	std::wstring Type;
 	bool IsEnabled;
+	std::wstring Folder;
 };
 struct IniSettings {
 	bool EnableLog = iniReader.ReadBoolean("Settings", "EnableLog", true);

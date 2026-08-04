@@ -31,17 +31,11 @@ std::vector<std::wstring> getInDirectoryW(const std::wstring& directory, bool ge
 
 std::vector<std::wstring> getAllInDirectoryW(const std::wstring& directory);
 
-void DownloadFile(std::wstring file, std::string url);
+void DownloadFile(std::string URL, std::wstring File, std::string& MemoryBuffer);
 
-std::vector<bit7z::byte_t> ExtractToMemory(std::wstring extractFrom, std::wstring fileToGet);
+void Combo(std::vector<std::wstring> Vector, int id, int &VectorSelectedIndex);
 
-void ExtractToDisk(std::wstring extractFrom, std::wstring fileToGet);
-
-void DownloadBar();
-
-void Combo(std::vector<std::wstring> Vector, int id, int VectorSelectedIndex = 0);
-
-void ProfileCombo(std::vector<Profile> Vector, int id, int VectorSelectedIndex = 0);
+void ProfileCombo(std::vector<Profile> Vector, int id, int &VectorSelectedIndex);
 
 bool TextInput(std::wstring Description, std::string& StringHandler);
 
@@ -60,10 +54,6 @@ bool ParseVersion(Profile& CurrentProfile, json& profile);
 std::wstring CombineNameAndVersion(Profile& CurrentProfile);
 
 std::wstring JoinAuthorsFromJson(const json& ModJson);
-
-ProfileDirectories CalculateProfileDirectories(json& ProfileJson);
-
-void DisableObject(ProfileDirectories& ProfileDirs, ObjectStruct& ObjectVector, int ObjectIndex);
 
 void ObjectList(Profile& CurrentProfile);
 

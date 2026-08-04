@@ -23,15 +23,7 @@ struct Object {
 	std::wstring Authors;
 	std::wstring Description;
 	std::wstring Version;
-};
-struct ProfileDirectories {
-	std::wstring ProfileDir;
-	std::wstring DisabledModsDir;
-	std::wstring DisabledResourcePacksDir;
-	std::wstring DisabledShaderPacksDir;
-	std::wstring ModsDir;
-	std::wstring ResourcePacksDir;
-	std::wstring ShaderPacksDir;
+	
 };
 struct ObjectStruct
 {
@@ -44,8 +36,9 @@ struct Profile {
 	std::wstring Version;
 	std::wstring NameAndVersion;
 	std::wstring WsDate;
-	ProfileDirectories ProfileDirs;
+	std::wstring Directory;
 	std::wstring ModLoader;
+	std::wstring JsonObject;
 	std::vector<ObjectStruct> ObjectStruct; //We store all objects into a vector of vectors
 	//int Date;
 	std::vector<ImGui::FileBrowser> FileBrowserVector;
@@ -54,3 +47,4 @@ extern std::vector<Profile> Profiles;
 extern std::wstring MinecraftDir;
 extern std::wstring ProfilesFile;
 extern int ProfileIndex;
+extern json ProfilesJsonData;
