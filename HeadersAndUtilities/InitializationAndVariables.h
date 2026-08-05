@@ -38,8 +38,8 @@ struct Profile {
 	std::wstring WsDate;
 	std::wstring Directory;
 	std::wstring ModLoader;
-	std::wstring JsonObject;
-	std::vector<ObjectStruct> ObjectStruct; //We store all objects into a vector of vectors
+	json JsonObject;
+	std::vector<ObjectStruct> ObjectStructVector; //We store all object data into a vector of object structs
 	//int Date;
 	std::vector<ImGui::FileBrowser> FileBrowserVector;
 };

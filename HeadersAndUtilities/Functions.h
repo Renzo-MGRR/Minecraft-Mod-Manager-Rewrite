@@ -33,8 +33,6 @@ std::vector<std::wstring> getAllInDirectoryW(const std::wstring& directory);
 
 void DownloadFile(std::string URL, std::wstring File, std::string& MemoryBuffer);
 
-void Combo(std::vector<std::wstring> Vector, int id, int &VectorSelectedIndex);
-
 void ProfileCombo(std::vector<Profile> Vector, int id, int &VectorSelectedIndex);
 
 bool TextInput(std::wstring Description, std::string& StringHandler);
@@ -43,7 +41,7 @@ void Execute(const std::wstring& cmdLine, const std::wstring& RunFrom, bool Sile
 
 std::wstring GetAppData();
 
-bool LoadModdedProfileData(Profile& CurrentProfile, json& ProfileJson, std::string Id);
+bool LoadModdedProfileData(Profile& CurrentProfile, json& ProfileJson, std::string Id, json& JsonData);
 
 std::vector<Profile> GetProfiles();
 
@@ -56,5 +54,7 @@ std::wstring CombineNameAndVersion(Profile& CurrentProfile);
 std::wstring JoinAuthorsFromJson(const json& ModJson);
 
 void ObjectList(Profile& CurrentProfile);
+
+void AddModPacks(Profile& CurrentProfile, std::vector<fs::path> ModPackList);
 
 void CleanLog();

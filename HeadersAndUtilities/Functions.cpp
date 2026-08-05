@@ -185,26 +185,6 @@ std::vector<std::wstring> getAllInDirectoryW(const std::wstring& directory)
 	return files;
 }
 
-void Combo(std::vector<std::wstring> Vector, int id, int &VectorSelectedIndex)
-{
-	if (ImGui::BeginCombo((wstring2string(L"##Combo" + std::to_wstring(id))).c_str(), (wstring2string(Vector[VectorSelectedIndex])).c_str()))
-	{
-		for (int i = 0; i < Vector.size(); ++i)
-		{
-			const bool isSelected = (VectorSelectedIndex == i);
-			if (ImGui::Selectable((wstring2string(Vector[i])).c_str(), isSelected))
-			{
-				VectorSelectedIndex = i;
-			}
-			if (isSelected)
-			{
-				ImGui::SetItemDefaultFocus();
-			}
-		}
-		ImGui::EndCombo();
-	}
-}
-
 void ProfileCombo(std::vector<Profile> Vector, int id, int &VectorSelectedIndex)
 {
 	if (ImGui::BeginCombo((wstring2string(L"##Combo" + std::to_wstring(id))).c_str(), (wstring2string(Vector[VectorSelectedIndex].NameAndVersion)).c_str()))
@@ -416,20 +396,31 @@ Object GetObjectInfo(std::wstring& ObjectFilename, ObjectType& ObjectType, bool 
 		{
 			SevenZip.extractMatching(wstring2string(ObjectType.Folder + L"\\Disabled\\" + NewObject.FileName), FileToExtract, ObjectBuffer);
 		}
-		json Json = json::parse(ObjectBuffer);
-		if (ObjectType.Type == L"Mods")
-		{
-			NewObject.Name = string2wstring(Json.value("name", ""));
-			NewObject.Description = string2wstring(Json.value("description", ""));
-			NewObject.Version = string2wstring(Json.value("version", ""));
-			NewObject.Authors = JoinAuthorsFromJson(Json);
-			
+		try {
+			json Json = json::parse(ObjectBuffer, nullptr, true);
+			if (ObjectType.Type == L"Mods")
+			{
+				NewObject.Name = string2wstring(Json.value("name", ""));
+				NewObject.Description = string2wstring(Json.value("description", ""));
+				NewObject.Version = string2wstring(Json.value("version", ""));
+				NewObject.Authors = JoinAuthorsFromJson(Json);
+
+			}
+			else // Resource Packs
+			{
+				if (Json["pack"].contains("name"))
+				{
+					NewObject.Name = string2wstring(Json["pack"].value("name", ""));
+				}
+				NewObject.Description = GetResourcePackDescription(Json["pack"]["description"]);
+			}
 		}
-		else // Resource Packs
+		catch (json::exception& except)
 		{
-			NewObject.Name = string2wstring(Json["pack"].value("name", ""));
-			NewObject.Description = GetResourcePackDescription(Json["pack"]["description"]);
+			std::string sException = except.what();
+			WriteToLog(string2wstring(sException));
 		}
+		
 	}
 	if (NewObject.Name.empty())
 	{
@@ -455,6 +446,23 @@ std::wstring GetObjectFolder(ObjectType& ObjectType, Profile& CurrentProfile)
 	Folder = CurrentProfile.Directory + L"\\" + Folder;
 	return Folder;
 }
+std::wstring GetObjectType(std::wstring& Folder)
+{
+	std::wstring Type;
+	if (Folder == L"mods")
+	{
+		Type = L"Mods";
+	}
+	else if (Folder == L"resourcepacks")
+	{
+		Type = L"Resource Packs";
+	}
+	else // Shader Packs
+	{
+		Type = L"Shader Packs";
+	}
+	return Type;
+}
 ObjectStruct GetObjects(ObjectType& ObjectType, Profile& CurrentProfile)
 {
 	CurrentTask = L"Getting profile objects...";
@@ -474,7 +482,7 @@ ObjectStruct GetObjects(ObjectType& ObjectType, Profile& CurrentProfile)
 	return Objects;
 }
 
-std::vector<ObjectStruct> GetObjectStruct(Profile& CurrentProfile)
+std::vector<ObjectStruct> GetObjectStructVector(Profile& CurrentProfile)
 {
 	CurrentTask = L"Getting profile objects...";
 	std::vector<ObjectStruct> ObjectStruct;
@@ -490,7 +498,7 @@ void ChangeObjectTypeAvailability(ObjectType& ObjectType)
 	std::wstring NewAvailableObjectTypes;
 	for (Profile& CurrentProfile : Profiles)
 	{
-		for (ObjectStruct& CurrentObjectStruct : CurrentProfile.ObjectStruct)
+		for (ObjectStruct& CurrentObjectStruct : CurrentProfile.ObjectStructVector)
 		{
 			if (ObjectType.Type == CurrentObjectStruct.ObjectType.Type)
 			{
@@ -523,15 +531,16 @@ void CreateIfNotExists(std::wstring& Folder)
 	}
 }
 
-std::vector<ImGui::FileBrowser> GetFileBrowserVector(Profile& CurrentProfile)
+std::vector<ImGui::FileBrowser> GetFileBrowserVector(Profile& CurrentProfile) //File Browsers don't have ids like most ImGui objects do, 
+//so we have to make a vector
 {
 	std::vector<ImGui::FileBrowser> FileBrowserVector;
-	for (int i = 0; i < CurrentProfile.ObjectStruct.size(); i++)
+	for (int i = 0; i < CurrentProfile.ObjectStructVector.size(); i++)
 	{
 		ImGui::FileBrowser FileDialog(FileBrowserFlags);
-		FileDialog.SetTitle(("Add " + wstring2string(CurrentProfile.ObjectStruct[i].ObjectType.Type)).c_str());
+		FileDialog.SetTitle(("Add " + wstring2string(CurrentProfile.ObjectStructVector[i].ObjectType.Type)).c_str());
 		FileDialog.SetDirectory(GetDownloadsFolder());
-		if (CurrentProfile.ObjectStruct[i].ObjectType.Type == L"Mods")
+		if (CurrentProfile.ObjectStructVector[i].ObjectType.Type == L"Mods")
 		{
 			FileDialog.SetTypeFilters({ ".jar" });
 		}
@@ -541,6 +550,11 @@ std::vector<ImGui::FileBrowser> GetFileBrowserVector(Profile& CurrentProfile)
 		}
 		FileBrowserVector.push_back(FileDialog);
 	}
+	ImGui::FileBrowser ModPackFileDialog(FileBrowserFlags);
+	ModPackFileDialog.SetTitle("Add Modpack");
+	ModPackFileDialog.SetDirectory(GetDownloadsFolder());
+	ModPackFileDialog.SetTypeFilters({ ".zip" , ".mrpack" });
+	FileBrowserVector.push_back(ModPackFileDialog);
 	return FileBrowserVector;
 }
 void RewriteProfilesFile(json& JsonData, std::wstring& ProfilesFile)
@@ -568,10 +582,10 @@ bool LoadModdedProfileData(Profile& CurrentProfile, json& ProfileJson, std::stri
 		RewriteProfilesFile(JsonData, ProfilesFile);
 	}
 	CreateIfNotExists(CurrentProfile.Directory);
-	CurrentProfile.ObjectStruct = GetObjectStruct(CurrentProfile);
-	for (int i = 0; i < CurrentProfile.ObjectStruct.size(); i++)
+	CurrentProfile.ObjectStructVector = GetObjectStructVector(CurrentProfile);
+	for (int i = 0; i < CurrentProfile.ObjectStructVector.size(); i++)
 	{
-		CreateIfNotExists(CurrentProfile.ObjectStruct[i].ObjectType.Folder);
+		CreateIfNotExists(CurrentProfile.ObjectStructVector[i].ObjectType.Folder);
 	}
 	CurrentProfile.FileBrowserVector = GetFileBrowserVector(CurrentProfile);
 	return true;
@@ -584,10 +598,10 @@ std::vector<Profile> GetProfiles()
 	if (ProfilesFound(ProfilesFile))
 	{
 		std::ifstream LauncherProfiles(wstring2string(ProfilesFile));
-		Profile CurrentProfile;
 		const std::string format = "%Y-%m-%d %H:%M:%S";
 		json data = json::parse(LauncherProfiles);
-		ProfilesJsonData = data;
+		Profile CurrentProfile;
+		//ProfilesJsonData = data;
 		for (auto& [Id, ProfileJson] : data["profiles"].items())
 		{
 			if (!LoadModdedProfileData(CurrentProfile, ProfileJson, Id, data))
@@ -616,22 +630,22 @@ void MoveObjectByState(ObjectStruct& ObjectStruct, int ObjectIndex)
 }
 void ObjectList(Profile& CurrentProfile)
 {
-	std::vector<ObjectStruct>& ProfileObjectStruct = CurrentProfile.ObjectStruct;
+	std::vector<ObjectStruct>& ProfileObjectStructVector = CurrentProfile.ObjectStructVector;
 	std::vector<ImGui::FileBrowser>& ProfileFileBrowserVector = CurrentProfile.FileBrowserVector;
-	for (int POSIndex = 0; POSIndex < ProfileObjectStruct.size(); POSIndex++) //It should repeat only 3 times since there are only 3 objects but still
+	for (int POSIndex = 0; POSIndex < ProfileObjectStructVector.size(); POSIndex++) //It should repeat only 3 times since there are only 3 objects but still
 	{
-		std::wstring& ObjectType = ProfileObjectStruct[POSIndex].ObjectType.Type;
-		if (ProfileObjectStruct[POSIndex].ObjectType.IsEnabled)
+		std::wstring& ObjectType = ProfileObjectStructVector[POSIndex].ObjectType.Type;
+		if (ProfileObjectStructVector[POSIndex].ObjectType.IsEnabled)
 		{
 			if (ImGui::CollapsingHeader((wstring2string(ObjectType) + "##" + std::to_string(POSIndex)).c_str()))
 			{
-				for (int i = 0; i < ProfileObjectStruct[POSIndex].ObjectVector.size(); i++) //We display each vector item data (Mods, Resource Packs, Shader Packs)
+				for (int i = 0; i < ProfileObjectStructVector[POSIndex].ObjectVector.size(); i++) //We display each vector item data (Mods, Resource Packs, Shader Packs)
 				{
-					ImGui::Text("%s", (wstring2string(ProfileObjectStruct[POSIndex].ObjectVector[i].Name)).c_str());
+					ImGui::Text("%s", (wstring2string(ProfileObjectStructVector[POSIndex].ObjectVector[i].Name)).c_str());
 					ImGui::SameLine();
-					if (ImGui::Checkbox(("Enabled##" + wstring2string(ObjectType) + std::to_string(i)).c_str(), &ProfileObjectStruct[POSIndex].ObjectVector[i].IsEnabled))
+					if (ImGui::Checkbox(("Enabled##" + wstring2string(ObjectType) + std::to_string(i)).c_str(), &ProfileObjectStructVector[POSIndex].ObjectVector[i].IsEnabled))
 					{
-						MoveObjectByState(ProfileObjectStruct[POSIndex], i);
+						MoveObjectByState(ProfileObjectStructVector[POSIndex], i);
 					}
 					ImGui::SameLine();
 					if (ImGui::Button(("Details##" + wstring2string(ObjectType) + std::to_string(i)).c_str()))
@@ -640,12 +654,12 @@ void ObjectList(Profile& CurrentProfile)
 					}
 					if (ImGui::BeginPopup(("DetailsPopup##" + wstring2string(ObjectType) + std::to_string(i)).c_str()))
 					{
-						ImGui::Text("Description: %s", (wstring2string(ProfileObjectStruct[POSIndex].ObjectVector[i].Description).c_str()));
-						ImGui::Text("Version: %s", (wstring2string(ProfileObjectStruct[POSIndex].ObjectVector[i].Version).c_str()));
-						ImGui::Text("Author(s): %s", (wstring2string(ProfileObjectStruct[POSIndex].ObjectVector[i].Authors).c_str()));
+						ImGui::Text("Description: %s", (wstring2string(ProfileObjectStructVector[POSIndex].ObjectVector[i].Description).c_str()));
+						ImGui::Text("Version: %s", (wstring2string(ProfileObjectStructVector[POSIndex].ObjectVector[i].Version).c_str()));
+						ImGui::Text("Author(s): %s", (wstring2string(ProfileObjectStructVector[POSIndex].ObjectVector[i].Authors).c_str()));
 						ImGui::EndPopup();
 					}
-					if (i != ProfileObjectStruct[POSIndex].ObjectVector.size() - 1)
+					if (i != ProfileObjectStructVector[POSIndex].ObjectVector.size() - 1)
 					{
 						ImGui::Separator();
 					}
@@ -662,9 +676,9 @@ void ObjectList(Profile& CurrentProfile)
 						std::wstring wsFile = CurrentFile.wstring();
 						std::wstring Filename = CurrentFile.filename().wstring();
 						Object NewObject;
-						fs::copy(wsFile, ProfileObjectStruct[POSIndex].ObjectType.Folder + L"\\" + Filename, fs::copy_options::skip_existing);
-						NewObject = GetObjectInfo(Filename, ProfileObjectStruct[POSIndex].ObjectType, true);
-						ProfileObjectStruct[POSIndex].ObjectVector.insert(ProfileObjectStruct[POSIndex].ObjectVector.begin(), NewObject);
+						fs::copy(wsFile, ProfileObjectStructVector[POSIndex].ObjectType.Folder + L"\\" + Filename, fs::copy_options::skip_existing);
+						NewObject = GetObjectInfo(Filename, ProfileObjectStructVector[POSIndex].ObjectType, true);
+						ProfileObjectStructVector[POSIndex].ObjectVector.insert(ProfileObjectStructVector[POSIndex].ObjectVector.begin(), NewObject);
 						//We insert the object into the vector to not fully reload profiles
 						ProfileFileBrowserVector[POSIndex].ClearSelected();
 					}
@@ -824,6 +838,116 @@ void OpenFabricInstaller()
 				Execute(string2wstring(FabricInstaller), GetCurrentFolder(), false, false);
 			}
 		}).detach();
+}
+
+void AddModPacks(Profile& CurrentProfile, std::vector<fs::path> ModPackList)
+{
+	int ModsObjectStructIndex = 0;
+	int ResourcePacksObjectStructIndex = 0;
+	int ShaderPacksObjectStructIndex = 0;
+	for (int i = 0; i < CurrentProfile.ObjectStructVector.size(); i++)
+	{
+		if (CurrentProfile.ObjectStructVector[i].ObjectType.Type == L"Mods")
+		{
+			ModsObjectStructIndex = i;
+			continue;
+		}
+		else if (CurrentProfile.ObjectStructVector[i].ObjectType.Type == L"Resource Packs")
+		{
+			ResourcePacksObjectStructIndex = i;
+			continue;
+		}
+		else //Shader Object Struct
+		{
+			ShaderPacksObjectStructIndex = i;
+			continue;
+		}
+	}
+	for (fs::path ModPack : ModPackList)
+	{
+		if (!fs::is_directory(ModPack)) // Zip modpacks
+		{
+			std::wstring wsModPackFolder = ModPack.parent_path().wstring() + L"\\" + ModPack.stem().wstring(); //I needed to create this cause CreateIfNotExists only takes pointers to optimize memory usage
+			if (!fs::exists(wsModPackFolder)) // If it already exists, I assume it's already extracted
+			{
+				fs::create_directory(wsModPackFolder);
+				std::string sModPackFolder = wstring2string(wsModPackFolder);
+				SevenZip.extract(ModPack.string(), sModPackFolder);
+			}
+			if (fs::exists(wsModPackFolder + L"\\modrinth.index.json")) //Modrinth modpack
+			{
+				std::ifstream ModpackObjects(wsModPackFolder + L"\\modrinth.index.json");
+				json data = json::parse(ModpackObjects);
+				std::string DownloadNJ = "";
+				std::wstring Path = L"";
+				std::wstring FullPath = L"";
+				std::wstring Name = L"";
+				std::wstring DownloadTo = L"";
+				for (auto& file : data["files"])
+				{
+					if (file.contains("downloads") && file["downloads"].is_array()) {
+						for (auto& item : file["downloads"]) {
+							if (item.is_string()) {
+								DownloadNJ = item.get<std::string>();
+							}
+						}
+					}
+					if (file.contains("path") && file["path"].is_string())
+					{
+						int pos = file.value("path", "").find("/");
+						Path = string2wstring(file.value("path", "").substr(0, pos));
+						Name = string2wstring(file.value("path", "").substr(pos + 1, file.value("path", "").size()));
+						FullPath = string2wstring(file.value("path", ""));
+						std::wstring NeededPath = wsModPackFolder + L"\\overrides\\" + Path;
+						CreateIfNotExists(NeededPath);
+						DownloadTo = NeededPath + L"\\" + Name;
+					}
+					if (DownloadNJ != "" && Path != L"" && !fs::exists(DownloadTo))
+					{
+						std::string MemoryBuffer = "";
+						DownloadFile(DownloadNJ, DownloadTo, MemoryBuffer);
+					}
+				}
+
+				for (std::wstring& FileOrFolder : getAllInDirectoryW(wsModPackFolder + L"\\overrides"))
+				{
+					if (fs::is_directory(wsModPackFolder + L"\\overrides\\" + FileOrFolder))
+					{
+						for (std::wstring& CurrentObject : getInDirectoryW(wsModPackFolder + L"\\overrides\\" + FileOrFolder, false))
+						{
+							if (FileOrFolder == L"mods" || FileOrFolder == L"resourcepacks" || FileOrFolder == L"shaderpacks")
+							{
+								ObjectType NewObjectType;
+								NewObjectType.Folder = wsModPackFolder + L"\\overrides\\" + FileOrFolder;
+								NewObjectType.IsEnabled = true;
+								NewObjectType.Type = GetObjectType(FileOrFolder);
+								Object NewObject = GetObjectInfo(CurrentObject, NewObjectType, true);
+								if (FileOrFolder == L"mods")
+								{
+									CurrentProfile.ObjectStructVector[ModsObjectStructIndex].ObjectVector.push_back(NewObject);
+								}
+								else if (FileOrFolder == L"resourcepacks")
+								{
+									CurrentProfile.ObjectStructVector[ResourcePacksObjectStructIndex].ObjectVector.push_back(NewObject);
+								}
+								else //Shader Packs
+								{
+									CurrentProfile.ObjectStructVector[ShaderPacksObjectStructIndex].ObjectVector.push_back(NewObject);
+								}
+							}
+							std::wstring ParentFolder = CurrentProfile.Directory + L"\\" + FileOrFolder;
+							CreateIfNotExists(ParentFolder);
+							fs::copy(wsModPackFolder + L"\\overrides\\" + FileOrFolder + L"\\" + CurrentObject, ParentFolder + L"\\" + CurrentObject, fs::copy_options::skip_existing);
+						}
+					}
+					else
+					{
+						fs::copy(wsModPackFolder + L"\\overrides\\" + FileOrFolder, CurrentProfile.Directory + L"\\" + FileOrFolder);
+					}
+				}
+			}
+		}
+	}
 }
 
 void CleanLog()

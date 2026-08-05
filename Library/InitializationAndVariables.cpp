@@ -10,7 +10,7 @@ int ProfileIndex = 0;
 bit7z::Bit7zLibrary lib{ "7z.dll" };
 bit7z::BitFileExtractor SevenZip{ lib, bit7z::BitFormat::Zip };
 void Initialization()
-{
+{	
 	std::thread([=]()
 	{
 		MinecraftDir = GetAppData() + L"\\.minecraft";

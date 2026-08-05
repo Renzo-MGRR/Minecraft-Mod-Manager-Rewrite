@@ -25,6 +25,19 @@ void ProfilesTab()
 			}).detach();
 		}
 		Profile& CurrentProfile = Profiles[ProfileIndex];
+		ImGui::FileBrowser& ModPackFileBrowser = CurrentProfile.FileBrowserVector.back();
+		if (ImGui::Button("Add Modpacks")) //They're called modpacks but they can include all object types, not just mods
+		{
+			ModPackFileBrowser.Open();
+		}
+		ModPackFileBrowser.Display();
+		if (ModPackFileBrowser.HasSelected())
+		{
+			std::vector<fs::path> ModPackList = ModPackFileBrowser.GetMultiSelected();
+			std::thread NewThread(AddModPacks, std::ref(CurrentProfile), ModPackList);
+			NewThread.detach();
+			ModPackFileBrowser.ClearSelected();
+		}
 		ObjectList(CurrentProfile);
 	}
 }
