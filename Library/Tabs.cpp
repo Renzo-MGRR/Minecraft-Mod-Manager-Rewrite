@@ -21,7 +21,8 @@ void ProfilesTab()
 		{
 			std::thread([=]()
 			{
-				Profiles = GetProfiles();
+				Profiles.clear();
+				GetProfiles(Profiles);
 			}).detach();
 		}
 		Profile& CurrentProfile = Profiles[ProfileIndex];

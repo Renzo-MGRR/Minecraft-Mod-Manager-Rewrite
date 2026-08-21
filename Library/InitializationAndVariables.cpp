@@ -9,6 +9,10 @@ std::vector<Profile> Profiles;
 int ProfileIndex = 0;
 bit7z::Bit7zLibrary lib{ "7z.dll" };
 bit7z::BitFileExtractor SevenZip{ lib, bit7z::BitFormat::Zip };
+bool datecmp(Profile Profile1, Profile Profile2)
+{
+	return Profile1.Date > Profile2.Date;
+}
 void Initialization()
 {	
 	std::thread([=]()
@@ -16,7 +20,8 @@ void Initialization()
 		MinecraftDir = GetAppData() + L"\\.minecraft";
 		ProfilesFile = MinecraftDir + L"\\launcher_profiles.json";
 		Settings.GlobalObjectTypes = GetAvailableObjectTypes(iniReader);
-		Profiles = GetProfiles();
+		GetProfiles(Profiles);
+		std::sort(Profiles.begin(), Profiles.end(), datecmp);
 		CleanLog();
 	}).detach();
 }

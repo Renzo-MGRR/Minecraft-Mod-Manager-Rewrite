@@ -43,7 +43,7 @@ std::wstring GetAppData();
 
 bool LoadModdedProfileData(Profile& CurrentProfile, json& ProfileJson, std::string Id, json& JsonData);
 
-std::vector<Profile> GetProfiles();
+void GetProfiles(std::vector<Profile>& ProfilesVector);
 
 bool ProfilesFound(std::wstring ProfilesFile);
 

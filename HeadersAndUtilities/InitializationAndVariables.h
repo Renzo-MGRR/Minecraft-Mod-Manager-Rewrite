@@ -8,12 +8,12 @@
 #include "..\ImGui\imfilebrowser.h"
 #include "..\ImGui\imgui_stdlib.h"
 #include "Settings.h"
+using json = nlohmann::json;
 extern std::wstring CurrentTask;
 extern bit7z::Bit7zLibrary lib;
 extern bit7z::BitFileExtractor SevenZip;
 extern inline std::vector<std::wstring> AllObjectTypes = { L"Mods", L"Resource Packs", L"Shader Packs" };
 extern inline std::wstring wsAllObjectTypes = L"Mods,Resource Packs,Shader Packs";
-using json = nlohmann::json;
 namespace fs = std::filesystem;
 extern inline int FileBrowserFlags = ImGuiFileBrowserFlags_MultipleSelection | ImGuiFileBrowserFlags_CloseOnEsc;
 struct Object {
@@ -23,7 +23,6 @@ struct Object {
 	std::wstring Authors;
 	std::wstring Description;
 	std::wstring Version;
-	
 };
 struct ObjectStruct
 {
@@ -40,7 +39,7 @@ struct Profile {
 	std::wstring ModLoader;
 	json JsonObject;
 	std::vector<ObjectStruct> ObjectStructVector; //We store all object data into a vector of object structs
-	//int Date;
+	std::chrono::system_clock::time_point Date;
 	std::vector<ImGui::FileBrowser> FileBrowserVector;
 };
 extern std::vector<Profile> Profiles;
