@@ -17,8 +17,6 @@ std::wstring GetCurrentFolder();
 
 void WriteToLog(const std::wstring& LoggingLine);
 
-bool IsFileAccessible(const std::string& filename);
-
 std::wstring string2wstring(const std::string& str);
 
 std::string wstring2string(const std::wstring& wstr);
@@ -41,7 +39,13 @@ void Execute(const std::wstring& cmdLine, const std::wstring& RunFrom, bool Sile
 
 std::wstring GetAppData();
 
+void ServerPopup();
+
+void AddServer();
+
 bool LoadModdedProfileData(Profile& CurrentProfile, json& ProfileJson, std::string Id, json& JsonData);
+
+void GetServers(std::vector<Profile>& ServersVector);
 
 void GetProfiles(std::vector<Profile>& ProfilesVector);
 

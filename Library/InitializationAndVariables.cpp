@@ -6,9 +6,12 @@ std::wstring CurrentTask = L"";
 std::wstring MinecraftDir = L"";
 std::wstring ProfilesFile = L"";
 std::vector<Profile> Profiles;
+std::vector<Profile> Servers;
 int ProfileIndex = 0;
+int ServerIndex = 0;
 bit7z::Bit7zLibrary lib{ "7z.dll" };
 bit7z::BitFileExtractor SevenZip{ lib, bit7z::BitFormat::Zip };
+std::atomic<float> DownloadProgress{ 0.0f };
 bool datecmp(Profile Profile1, Profile Profile2)
 {
 	return Profile1.Date > Profile2.Date;
@@ -21,6 +24,7 @@ void Initialization()
 		ProfilesFile = MinecraftDir + L"\\launcher_profiles.json";
 		Settings.GlobalObjectTypes = GetAvailableObjectTypes(iniReader);
 		GetProfiles(Profiles);
+		GetServers(Servers);
 		std::sort(Profiles.begin(), Profiles.end(), datecmp);
 		CleanLog();
 	}).detach();

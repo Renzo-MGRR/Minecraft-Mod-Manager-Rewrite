@@ -2,3 +2,4 @@
 void Initialization();
 void ProfilesTab();
 void SettingsTab();
+void ServersTab();

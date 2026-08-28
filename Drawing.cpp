@@ -47,6 +47,11 @@ void Drawing::Draw()
 					ProfilesTab();
 					ImGui::EndTabItem();
 				}
+				if (ImGui::BeginTabItem("Servers"))
+				{
+					ServersTab();
+					ImGui::EndTabItem();
+				}
 				if (ImGui::BeginTabItem("Settings"))
 				{
 					SettingsTab();

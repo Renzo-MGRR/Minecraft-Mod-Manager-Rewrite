@@ -9,6 +9,8 @@
 #include "..\ImGui\imgui_stdlib.h"
 #include "Settings.h"
 using json = nlohmann::json;
+extern inline bool DisableProfileSelection = false;
+extern inline bool DisableServerSelection = false;
 extern std::wstring CurrentTask;
 extern bit7z::Bit7zLibrary lib;
 extern bit7z::BitFileExtractor SevenZip;
@@ -24,6 +26,7 @@ struct Object {
 	std::wstring Description;
 	std::wstring Version;
 };
+extern std::atomic<float> DownloadProgress;
 struct ObjectStruct
 {
 	std::vector<Object> ObjectVector;
@@ -43,7 +46,9 @@ struct Profile {
 	std::vector<ImGui::FileBrowser> FileBrowserVector;
 };
 extern std::vector<Profile> Profiles;
+extern std::vector<Profile> Servers;
 extern std::wstring MinecraftDir;
 extern std::wstring ProfilesFile;
 extern int ProfileIndex;
+extern int ServerIndex;
 extern json ProfilesJsonData;

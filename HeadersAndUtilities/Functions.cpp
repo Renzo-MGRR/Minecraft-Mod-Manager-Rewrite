@@ -12,6 +12,14 @@
 #include <errno.h>
 namespace fs = std::filesystem;
 
+void CreateIfNotExists(std::wstring& Folder)
+{
+	if (!fs::exists(Folder))
+	{
+		fs::create_directory(Folder);
+	}
+}
+
 std::wstring GetAppData()
 {
 	wchar_t appdata[MAX_PATH];
@@ -117,23 +125,11 @@ void WriteToLog(const std::wstring& LoggingLine)
 	}
 }
 
-bool IsFileAccessible(const std::string& filename)
+static int ProgressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) 
 {
-	std::ifstream file(filename);
-	return file.good();
-}
-
-struct DownloadStatus {
-	std::atomic<float> progress{ 0.0f };
-	std::atomic<bool> isDownloading{ false };
-	std::wstring currentFileName;
-	std::atomic<bool> isCopying{ false };
-};
-DownloadStatus g_Status;
-
-static int ProgressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
-	if (dltotal > 0) {
-		g_Status.progress = (float)dlnow / (float)dltotal;
+	if (dltotal > 0) 
+	{
+		DownloadProgress = (float)dlnow / (float)dltotal;
 	}
 	return 0;
 }
@@ -185,7 +181,25 @@ std::vector<std::wstring> getAllInDirectoryW(const std::wstring& directory)
 
 	return files;
 }
-
+void Combo(std::vector<std::wstring>& Vector, int id, int& VectorSelectedIndex)
+{
+	if (ImGui::BeginCombo((wstring2string(L"##Combo" + std::to_wstring(id))).c_str(), (wstring2string(Vector[VectorSelectedIndex])).c_str()))
+	{
+		for (int i = 0; i < Vector.size(); ++i)
+		{
+			const bool isSelected = (VectorSelectedIndex == i);
+			if (ImGui::Selectable((wstring2string(Vector[i])).c_str(), isSelected))
+			{
+				VectorSelectedIndex = i;
+			}
+			if (isSelected)
+			{
+				ImGui::SetItemDefaultFocus();
+			}
+		}
+		ImGui::EndCombo();
+	}
+}
 void ProfileCombo(std::vector<Profile> Vector, int id, int &VectorSelectedIndex)
 {
 	if (ImGui::BeginCombo((wstring2string(L"##Combo" + std::to_wstring(id))).c_str(), (wstring2string(Vector[VectorSelectedIndex].NameAndVersion)).c_str()))
@@ -378,13 +392,13 @@ std::wstring GetResourcePackDescription(json& JsonObject)
 	}
 	return Description;
 }
+
 Object GetObjectInfo(std::wstring& ObjectFilename, ObjectType& ObjectType, bool Enabled)
 {
 	Object NewObject;
 	NewObject.FileName = ObjectFilename;
 	NewObject.IsEnabled = Enabled;
 	std::string FileToExtract;
-	std::vector<bit7z::byte_t> ObjectBuffer;
 	if (ObjectType.Type != L"Shader Packs")
 	{
 		if (ObjectType.Type == L"Mods")
@@ -395,23 +409,47 @@ Object GetObjectInfo(std::wstring& ObjectFilename, ObjectType& ObjectType, bool 
 		{
 			FileToExtract = "pack.mcmeta";
 		}
+		std::wstring ObjectFile = L"";
+		std::wstring ObjectJsonFile = ObjectType.Folder + L"\\Metadata\\" + NewObject.FileName + L".json";
 		if (NewObject.IsEnabled)
 		{
-			SevenZip.extractMatching(wstring2string(ObjectType.Folder + L"\\" + NewObject.FileName), FileToExtract, ObjectBuffer);
+			ObjectFile = ObjectType.Folder + L"\\" + NewObject.FileName;
+			if (!fs::exists(ObjectJsonFile))
+			{
+				SevenZip.extractMatching(wstring2string(ObjectFile), FileToExtract, wstring2string(ObjectType.Folder));
+				std::wstring MetadataFolder = ObjectType.Folder + L"\\Metadata";
+				CreateIfNotExists(MetadataFolder);
+				fs::rename(ObjectType.Folder + L"\\" + string2wstring(FileToExtract), ObjectJsonFile);
+			}
 		}
 		else
 		{
-			SevenZip.extractMatching(wstring2string(ObjectType.Folder + L"\\Disabled\\" + NewObject.FileName), FileToExtract, ObjectBuffer);
-		}
-		//We need to erase end of line characters in order to avoid parsing errors. Idk why really
-		for (int i = 0; i < ObjectBuffer.size(); i++)
-		{
-			if (ObjectBuffer[i] == '\n')
+			ObjectFile = ObjectType.Folder + L"\\Disabled\\" + NewObject.FileName;
+			if (!fs::exists(ObjectJsonFile))
 			{
-				ObjectBuffer.erase(ObjectBuffer.begin() + i);
+				SevenZip.extractMatching(wstring2string(ObjectFile), FileToExtract, wstring2string(ObjectType.Folder + L"\\Disabled"));
+				std::wstring MetadataFolder = ObjectType.Folder + L"\\Metadata";
+				CreateIfNotExists(MetadataFolder);
+				fs::rename(ObjectType.Folder + L"\\Disabled\\" + string2wstring(FileToExtract), ObjectJsonFile);
 			}
 		}
-		json Json = json::parse(ObjectBuffer);
+		std::ifstream ObjectJson(wstring2string(ObjectJsonFile));
+		//We need to erase end of line characters in order to avoid parsing errors. Idk why really
+		std::string ObjectJsonString = "";
+		std::string line = "";
+		while (std::getline(ObjectJson, line)) 
+		{
+			ObjectJsonString += line;
+		}
+		ObjectJson.close();
+		for (int i = 0; i < ObjectJsonString.size(); i++)
+		{
+			if (ObjectJsonString[i] == '\n')
+			{
+				ObjectJsonString.erase(ObjectJsonString.begin() + i);
+			}
+		}
+		json Json = json::parse(ObjectJsonString);
 		if (ObjectType.Type == L"Mods")
 		{
 			NewObject.Name = string2wstring(Json.value("name", ""));
@@ -434,6 +472,7 @@ Object GetObjectInfo(std::wstring& ObjectFilename, ObjectType& ObjectType, bool 
 	}
 	return NewObject;
 }
+
 std::wstring GetObjectFolder(ObjectType& ObjectType, Profile& CurrentProfile)
 {
 	std::wstring Folder;
@@ -452,6 +491,7 @@ std::wstring GetObjectFolder(ObjectType& ObjectType, Profile& CurrentProfile)
 	Folder = CurrentProfile.Directory + L"\\" + Folder;
 	return Folder;
 }
+
 std::wstring GetObjectType(std::wstring& Folder)
 {
 	std::wstring Type;
@@ -563,14 +603,6 @@ void ChangeObjectTypeAvailability(ObjectType& ObjectType)
 	iniReader.WriteString("Settings", "EnabledObjectTypes", wstring2string(NewAvailableObjectTypes));
 }
 
-void CreateIfNotExists(std::wstring& Folder)
-{
-	if (!fs::exists(Folder))
-	{
-		fs::create_directory(Folder);
-	}
-}
-
 std::vector<ImGui::FileBrowser> GetFileBrowserVector(Profile& CurrentProfile) //File Browsers don't have ids like most ImGui objects do, 
 //so we have to make a vector
 {
@@ -607,8 +639,16 @@ std::chrono::system_clock::time_point GFG(const std::string& datetimeString, con
 	tm tmStruct = {};
 	std::istringstream ss(datetimeString);
 	ss >> std::get_time(&tmStruct, format.c_str());
-	return std::chrono::system_clock::from_time_t(
-		mktime(&tmStruct));
+	return std::chrono::system_clock::from_time_t(mktime(&tmStruct));
+}
+void CreateProfileFolders(Profile& CurrentProfile)
+{
+	for (int i = 0; i < CurrentProfile.ObjectStructVector.size(); i++)
+	{
+		CreateIfNotExists(CurrentProfile.ObjectStructVector[i].ObjectType.Folder);
+		std::wstring DisabledFolder = CurrentProfile.ObjectStructVector[i].ObjectType.Folder + L"\\Disabled";
+		CreateIfNotExists(DisabledFolder);
+	}
 }
 void LoadModdedProfileData(Profile& CurrentProfile, json& ProfileJson, std::string Id, json& JsonData)
 {
@@ -633,13 +673,31 @@ void LoadModdedProfileData(Profile& CurrentProfile, json& ProfileJson, std::stri
 	}
 	CreateIfNotExists(CurrentProfile.Directory);
 	CurrentProfile.ObjectStructVector = GetObjectStructVector(CurrentProfile);
-	for (int i = 0; i < CurrentProfile.ObjectStructVector.size(); i++)
-	{
-		CreateIfNotExists(CurrentProfile.ObjectStructVector[i].ObjectType.Folder);
-		std::wstring DisabledFolder = CurrentProfile.ObjectStructVector[i].ObjectType.Folder + L"\\Disabled";
-		CreateIfNotExists(DisabledFolder);
-	}
+	CreateProfileFolders(CurrentProfile);
 	CurrentProfile.FileBrowserVector = GetFileBrowserVector(CurrentProfile);
+}
+
+void LoadModdedServerData(Profile& CurrentServer, std::wstring& ServerName)
+{
+	CurrentTask = L"Loading server info...";
+	CurrentServer.Name = ServerName;
+	CurrentServer.Version = L"";
+	CurrentServer.NameAndVersion = CombineNameAndVersion(CurrentServer);
+	CurrentServer.Directory = MinecraftDir + L"\\servers\\" + ServerName;
+	CurrentServer.ObjectStructVector = GetObjectStructVector(CurrentServer);
+	CreateIfNotExists(CurrentServer.Directory);
+	CreateProfileFolders(CurrentServer);
+	CurrentServer.FileBrowserVector = GetFileBrowserVector(CurrentServer);
+}
+
+void GetServers(std::vector<Profile>& ServersVector)
+{
+	for (std::wstring CurrentServerName : getInDirectoryW(MinecraftDir + L"\\servers\\", true))
+	{
+		Profile NewServer;
+		LoadModdedServerData(NewServer, CurrentServerName);
+		Servers.push_back(NewServer);
+	}
 }
 
 void GetProfiles(std::vector<Profile>& ProfilesVector)
@@ -657,7 +715,8 @@ void GetProfiles(std::vector<Profile>& ProfilesVector)
 				LoadModdedProfileData(CurrentProfile, ProfileJson, Id, data);
 				ProfilesVector.push_back(CurrentProfile);
 			}
-		}		
+		}	
+		LauncherProfiles.close();
 	}
 	CurrentTask = L"";
 }
@@ -675,6 +734,7 @@ void MoveObjectByState(ObjectStruct& ObjectStruct, int ObjectIndex)
 			ObjectStruct.ObjectType.Folder + L"\\Disabled\\" + ObjectStruct.ObjectVector[ObjectIndex].FileName);
 	}
 }
+
 void ObjectList(Profile& CurrentProfile)
 {
 	std::vector<ObjectStruct>& ProfileObjectStructVector = CurrentProfile.ObjectStructVector;
@@ -706,16 +766,17 @@ void ObjectList(Profile& CurrentProfile)
 						ProfileFileBrowserVector[POSIndex].ClearSelected();
 					}
 				}
-				if (ImGui::BeginTable(("##" + wstring2string(ObjectType) + "##" + std::to_string(POSIndex)).c_str(), 3))
+				if (ImGui::BeginTable(("##" + wstring2string(ObjectType) + "##" + std::to_string(POSIndex)).c_str(), 4))
 				{
 					ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed);
 					ImGui::TableSetupColumn("Enabled", ImGuiTableColumnFlags_WidthFixed);
 					ImGui::TableSetupColumn("Details", ImGuiTableColumnFlags_WidthFixed);
+					ImGui::TableSetupColumn("##Remove", ImGuiTableColumnFlags_WidthFixed);
 					ImGui::TableHeadersRow();
 					for (int row = 0; row < ProfileObjectStructVector[POSIndex].ObjectVector.size(); row++)
 					{
 						ImGui::TableNextRow();
-						for (int column = 0; column < 3; column++)
+						for (int column = 0; column < 4; column++)
 						{
 							ImGui::TableSetColumnIndex(column);
 							if (column == 0)
@@ -729,7 +790,7 @@ void ObjectList(Profile& CurrentProfile)
 									MoveObjectByState(ProfileObjectStructVector[POSIndex], row);
 								}
 							}
-							else
+							else if (column == 2)
 							{
 								if (ImGui::Button(("...##" + wstring2string(ObjectType) + std::to_string(row)).c_str()))
 								{
@@ -737,9 +798,34 @@ void ObjectList(Profile& CurrentProfile)
 								}
 								if (ImGui::BeginPopup(("DetailsPopup##" + wstring2string(ObjectType) + std::to_string(row)).c_str()))
 								{
-									ImGui::Text("Description: %s", (wstring2string(ProfileObjectStructVector[POSIndex].ObjectVector[row].Description).c_str()));
+									ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + 300.0f);
+									ImGui::Text("%s", (wstring2string(ProfileObjectStructVector[POSIndex].ObjectVector[row].Description).c_str()));
 									ImGui::Text("Version: %s", (wstring2string(ProfileObjectStructVector[POSIndex].ObjectVector[row].Version).c_str()));
 									ImGui::Text("Author(s): %s", (wstring2string(ProfileObjectStructVector[POSIndex].ObjectVector[row].Authors).c_str()));
+									ImGui::PopTextWrapPos();
+									ImGui::EndPopup();
+								}
+							}
+							else
+							{
+								if (ImGui::Button(("Remove##" + wstring2string(ObjectType) + std::to_string(row)).c_str()))
+								{
+									ImGui::OpenPopup(("Remove##Popup" + wstring2string(ObjectType) + std::to_string(row)).c_str());
+								}
+								if (ImGui::BeginPopup(("Remove##Popup" + wstring2string(ObjectType) + std::to_string(row)).c_str()))
+								{
+									ImGui::Text("Are you sure you want to remove this item?");
+									if (ImGui::Button(("Remove##Confirm" + wstring2string(ObjectType) + std::to_string(row)).c_str()))
+									{
+										fs::remove(CurrentProfile.Directory + L"\\" + ObjectType + L"\\" + ProfileObjectStructVector[POSIndex].ObjectVector[row].FileName);
+										ProfileObjectStructVector[POSIndex].ObjectVector.erase(ProfileObjectStructVector[POSIndex].ObjectVector.begin() + row);
+										ImGui::CloseCurrentPopup();
+									}
+									ImGui::SameLine();
+									if (ImGui::Button(("Cancel##" + wstring2string(ObjectType) + std::to_string(row)).c_str()))
+									{
+										ImGui::CloseCurrentPopup();
+									}
 									ImGui::EndPopup();
 								}
 							}
@@ -751,20 +837,24 @@ void ObjectList(Profile& CurrentProfile)
 		}
 	}
 }
-std::string extractBetweenDelimiters(const std::string& str, const std::string& start_delim, const std::string& end_delim) {
-	size_t first_delim_pos = str.find(start_delim);
 
-	if (first_delim_pos == std::string::npos) {
+std::string extractBetweenDelimiters(const std::string& str, const std::string& start_delim, const std::string& end_delim) 
+{
+	size_t first_delim_pos = str.find(start_delim);
+	if (first_delim_pos == std::string::npos) 
+	{
 		return "";
 	}
 	size_t start_pos = first_delim_pos + start_delim.length();
 	size_t second_delim_pos = str.find(end_delim, start_pos);
-	if (second_delim_pos == std::string::npos) {
+	if (second_delim_pos == std::string::npos) 
+	{
 		return "";
 	}
 	size_t length = second_delim_pos - start_pos;
 	return str.substr(start_pos, length);
 }
+
 static size_t WriteToMemory(void* contents, size_t size, size_t nmemb, void* userp)
 {
 	size_t realsize = size * nmemb;
@@ -772,7 +862,9 @@ static size_t WriteToMemory(void* contents, size_t size, size_t nmemb, void* use
 	buf->append(static_cast<char*>(contents), realsize);
 	return realsize;
 }
-static size_t WriteData(void* ptr, size_t size, size_t nmemb, FILE* stream) {
+
+static size_t WriteData(void* ptr, size_t size, size_t nmemb, FILE* stream) 
+{
 	size_t written = fwrite(ptr, size, nmemb, stream);
 	return written;
 }
@@ -828,13 +920,13 @@ void DownloadFile(std::string URL, std::wstring File, std::string& MemoryBuffer)
 				{
 					CURLcode res = curl_easy_perform(curl);
 					fclose(FileObj);
-					if (res != CURLE_OK) {
+					if (res != CURLE_OK) 
+					{
 						if (fs::exists(File))
 						{
 							fs::remove(File);
 						}
 					}
-					
 				}
 				curl_easy_cleanup(curl);
 			}
@@ -853,7 +945,8 @@ std::vector<std::string> GetFabricInstallerVersions(std::string Filecontents)
 	std::istringstream File(Filecontents);
 	std::vector<std::string> FabricInstallerVersions;
 	std::string currin;
-	while (std::getline(File, currin)) {
+	while (std::getline(File, currin)) 
+	{
 		if (currin.find("href=") != std::string::npos && currin.find("<h1>") == std::string::npos && currin.find("maven") == std::string::npos)
 		{
 			FabricInstallerVersions.push_back(currin);
@@ -906,6 +999,8 @@ void OpenFabricInstaller()
 
 void AddModPacks(Profile& CurrentProfile, std::vector<fs::path> ModPackList)
 {
+	DisableProfileSelection = true;
+	DisableServerSelection = true;
 	int ModsObjectStructIndex = 0;
 	int ResourcePacksObjectStructIndex = 0;
 	int ShaderPacksObjectStructIndex = 0;
@@ -929,92 +1024,256 @@ void AddModPacks(Profile& CurrentProfile, std::vector<fs::path> ModPackList)
 	}
 	for (fs::path ModPack : ModPackList)
 	{
+		std::wstring wsModPackFolder = ModPack.parent_path().wstring() + L"\\" + ModPack.stem().wstring();
 		if (!fs::is_directory(ModPack)) // Zip modpacks
 		{
-			std::wstring wsModPackFolder = ModPack.parent_path().wstring() + L"\\" + ModPack.stem().wstring(); //I needed to create this cause CreateIfNotExists only takes pointers to optimize memory usage
 			if (!fs::exists(wsModPackFolder)) // If it already exists, I assume it's already extracted
 			{
+				CurrentTask = L"Extracting modpack: " + std::wstring(ModPack);
 				fs::create_directory(wsModPackFolder);
 				std::string sModPackFolder = wstring2string(wsModPackFolder);
 				SevenZip.extract(ModPack.string(), sModPackFolder);
-			}
-			if (fs::exists(wsModPackFolder + L"\\modrinth.index.json")) //Modrinth modpack
-			{
-				std::ifstream ModpackObjects(wsModPackFolder + L"\\modrinth.index.json");
-				json data = json::parse(ModpackObjects);
-				std::string DownloadNJ = "";
-				std::wstring Path = L"";
-				std::wstring FullPath = L"";
-				std::wstring Name = L"";
-				std::wstring DownloadTo = L"";
-				for (auto& file : data["files"])
-				{
-					if (file.contains("downloads") && file["downloads"].is_array()) {
-						for (auto& item : file["downloads"]) {
-							if (item.is_string()) {
-								DownloadNJ = item.get<std::string>();
-							}
-						}
-					}
-					if (file.contains("path") && file["path"].is_string())
-					{
-						int pos = file.value("path", "").find("/");
-						Path = string2wstring(file.value("path", "").substr(0, pos));
-						Name = string2wstring(file.value("path", "").substr(pos + 1, file.value("path", "").size()));
-						FullPath = string2wstring(file.value("path", ""));
-						std::wstring NeededPath = wsModPackFolder + L"\\overrides\\" + Path;
-						CreateIfNotExists(NeededPath);
-						DownloadTo = NeededPath + L"\\" + Name;
-					}
-					if (DownloadNJ != "" && Path != L"" && !fs::exists(DownloadTo))
-					{
-						std::string MemoryBuffer = "";
-						CurrentTask = L"Downloading file: " + Name;
-						DownloadFile(DownloadNJ, DownloadTo, MemoryBuffer);
-						CurrentTask = L"";
-					}
-				}
-
-				for (std::wstring& FileOrFolder : getAllInDirectoryW(wsModPackFolder + L"\\overrides"))
-				{	
-					CurrentTask = L"Copying item: " + FileOrFolder;
-					if (fs::is_directory(wsModPackFolder + L"\\overrides\\" + FileOrFolder))
-					{
-						for (std::wstring& CurrentObject : getInDirectoryW(wsModPackFolder + L"\\overrides\\" + FileOrFolder, false))
-						{
-							if (FileOrFolder == L"mods" || FileOrFolder == L"resourcepacks" || FileOrFolder == L"shaderpacks")
-							{
-								ObjectType NewObjectType;
-								NewObjectType.Folder = wsModPackFolder + L"\\overrides\\" + FileOrFolder;
-								NewObjectType.IsEnabled = true;
-								NewObjectType.Type = GetObjectType(FileOrFolder);
-								Object NewObject = GetObjectInfo(CurrentObject, NewObjectType, true);
-								if (FileOrFolder == L"mods")
-								{
-									CurrentProfile.ObjectStructVector[ModsObjectStructIndex].ObjectVector.push_back(NewObject);
-								}
-								else if (FileOrFolder == L"resourcepacks")
-								{
-									CurrentProfile.ObjectStructVector[ResourcePacksObjectStructIndex].ObjectVector.push_back(NewObject);
-								}
-								else //Shader Packs
-								{
-									CurrentProfile.ObjectStructVector[ShaderPacksObjectStructIndex].ObjectVector.push_back(NewObject);
-								}
-							}
-							std::wstring ParentFolder = CurrentProfile.Directory + L"\\" + FileOrFolder;
-							CreateIfNotExists(ParentFolder);
-							fs::copy(wsModPackFolder + L"\\overrides\\" + FileOrFolder + L"\\" + CurrentObject, ParentFolder + L"\\" + CurrentObject, fs::copy_options::skip_existing);
-						}
-					}
-					else
-					{
-						fs::copy(wsModPackFolder + L"\\overrides\\" + FileOrFolder, CurrentProfile.Directory + L"\\" + FileOrFolder);
-					}
-				}
 				CurrentTask = L"";
 			}
 		}
+		if (fs::exists(wsModPackFolder + L"\\modrinth.index.json")) //Modrinth modpack
+		{
+			std::ifstream ModpackObjects(wsModPackFolder + L"\\modrinth.index.json");
+			json data = json::parse(ModpackObjects);
+			std::string DownloadURL = "";
+			std::wstring Path = L"";
+			std::wstring FullPath = L"";
+			std::wstring Name = L"";
+			std::wstring DownloadTo = L"";
+			for (auto& file : data["files"])
+			{
+				if (file.contains("downloads") && file["downloads"].is_array()) 
+				{
+					for (auto& item : file["downloads"]) 
+					{
+						if (item.is_string()) 
+						{
+							DownloadURL = item.get<std::string>();
+						}
+					}
+				}
+				if (file.contains("path") && file["path"].is_string())
+				{
+					int pos = file.value("path", "").find("/");
+					Path = string2wstring(file.value("path", "").substr(0, pos));
+					Name = string2wstring(file.value("path", "").substr(pos + 1, file.value("path", "").size()));
+					FullPath = string2wstring(file.value("path", ""));
+					std::wstring NeededPath = wsModPackFolder + L"\\overrides\\" + Path;
+					CreateIfNotExists(NeededPath);
+					DownloadTo = NeededPath + L"\\" + Name;
+				}
+				if (DownloadURL != "" && DownloadTo != L"" && !fs::exists(DownloadTo))
+				{
+					std::string MemoryBuffer = "";
+					CurrentTask = L"Downloading file: " + Name;
+					DownloadFile(DownloadURL, DownloadTo, MemoryBuffer);
+					CurrentTask = L"";
+				}
+			}
+			ModpackObjects.close();
+		}
+		for (std::wstring& FileOrFolder : getAllInDirectoryW(wsModPackFolder + L"\\overrides"))
+		{
+			if (fs::is_directory(wsModPackFolder + L"\\overrides\\" + FileOrFolder))
+			{
+				for (std::wstring& CurrentObject : getInDirectoryW(wsModPackFolder + L"\\overrides\\" + FileOrFolder, false))
+				{
+					CurrentTask = L"Copying item: " + FileOrFolder + LR"(\)" + CurrentObject;
+					if (FileOrFolder == L"mods" || FileOrFolder == L"resourcepacks" || FileOrFolder == L"shaderpacks")
+					{
+						ObjectType NewObjectType;
+						NewObjectType.Folder = wsModPackFolder + L"\\overrides\\" + FileOrFolder;
+						NewObjectType.IsEnabled = true;
+						NewObjectType.Type = GetObjectType(FileOrFolder);
+						Object NewObject = GetObjectInfo(CurrentObject, NewObjectType, true);
+						if (FileOrFolder == L"mods")
+						{
+							CurrentProfile.ObjectStructVector[ModsObjectStructIndex].ObjectVector.push_back(NewObject);
+						}
+						else if (FileOrFolder == L"resourcepacks")
+						{
+							CurrentProfile.ObjectStructVector[ResourcePacksObjectStructIndex].ObjectVector.push_back(NewObject);
+						}
+						else //Shader Packs
+						{
+							CurrentProfile.ObjectStructVector[ShaderPacksObjectStructIndex].ObjectVector.push_back(NewObject);
+						}
+					}
+					std::wstring ParentFolder = CurrentProfile.Directory + L"\\" + FileOrFolder;
+					CreateIfNotExists(ParentFolder);
+					fs::copy(wsModPackFolder + L"\\overrides\\" + FileOrFolder + L"\\" + CurrentObject, ParentFolder + L"\\" + CurrentObject, fs::copy_options::skip_existing);
+				}
+			}
+			else
+			{
+				CurrentTask = L"Copying item: " + FileOrFolder;
+				fs::copy(wsModPackFolder + L"\\overrides\\" + FileOrFolder, CurrentProfile.Directory + L"\\" + FileOrFolder);
+			}
+		}
+		CurrentTask = L"";
+	}
+	DisableProfileSelection = false;
+	DisableServerSelection = true;
+	DownloadProgress = 0.0f;
+}
+//I need to declare them globally since ImGui would loop and destroy them otherwise
+std::vector<std::wstring> Unit = { L"MB", L"GB" };
+int UnitSelectedIndex = 2;
+std::vector<std::wstring> FabricServerVersions;
+int FabricServerVersionsIndex = 0;
+std::string MemBuffer = "";
+std::string SelectedLoaderVersion = "";
+char ServerName[260] = "";
+int MinimumRAM = 2;
+int MaximumRAM = 4;
+bool ShowRAMError = false;
+bool AskNamePrompt = false;
+bool NameAlreadyExists = false;
+std::string MostRecentFabricInstallerVersion = "";
+void AddServer()
+{
+	if (SelectedLoaderVersion == "")
+	{
+		CurrentTask = L"Downloading Fabric Loader version list...";
+		DownloadFile("https://meta.fabricmc.net/v2/versions/loader", L"", MemBuffer);
+		CurrentTask = L"Getting Fabric Loader versions...";
+		json fabricloader = json::parse(MemBuffer);
+		for (auto& item : fabricloader)
+		{
+			if (item.contains("version"))
+			{
+				SelectedLoaderVersion = std::string(item["version"]);
+				break;
+			}
+		}
+		CurrentTask = L"";
+		MemBuffer = "";
+	}
+	if (FabricServerVersions.empty())
+	{
+		CurrentTask = L"Downloading Fabric Server version list...";
+		DownloadFile("https://meta.fabricmc.net/v2/versions", L"", MemBuffer);
+		CurrentTask = L"Getting Fabric Server versions...";
+		json Versions = json::parse(MemBuffer);
+		for (auto& curritem : Versions["game"])
+		{
+			if (curritem.contains("version"))
+			{
+				FabricServerVersions.push_back(string2wstring(std::string(curritem["version"])));
+			}
+		}
+		MemBuffer = "";
+		CurrentTask = L"";
+	}
+}
+void InstallServer()
+{
+	CurrentTask = L"Downloading installer versions...";
+	DownloadFile("https://meta.fabricmc.net/v2/versions/installer", L"", MemBuffer);
+	json jinstallers = json::parse(MemBuffer);
+	for (auto& item : jinstallers)
+	{
+		if (item.contains("version"))
+		{
+			MostRecentFabricInstallerVersion = std::string(item["version"]);
+			break;
+		}
+	}
+	MemBuffer = "";
+	CurrentTask = L"Downloading server.jar...";
+	Profile NewServer;
+	std::wstring wsServerName = string2wstring(std::string(ServerName));
+	LoadModdedServerData(NewServer, wsServerName);
+	DownloadFile("https://meta.fabricmc.net/v2/versions/loader/" + wstring2string(FabricServerVersions[FabricServerVersionsIndex]) +
+		"/" + SelectedLoaderVersion + "/" + MostRecentFabricInstallerVersion + "/server/jar", 
+		NewServer.Directory + L"\\server.jar", MemBuffer);
+	Servers.push_back(NewServer);
+	MemBuffer = "";
+	//I need to execute the server and accept eula here
+	CurrentTask = L"Server successfully installed!";
+
+}
+void ServerPopup()
+{
+	if (ImGui::BeginPopup("##ServerInstallPopup"))
+	{
+		if (!FabricServerVersions.empty())
+		{
+			Combo(FabricServerVersions, 3, FabricServerVersionsIndex);
+			ImGui::Text("Server name:");
+			ImGui::SameLine();
+			ImGui::InputText("##a", ServerName, 260);
+			ImGui::Text("Minimum Server RAM:");
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(80.0f);
+			ImGui::InputInt("##b", &MinimumRAM);
+			ImGui::SameLine();
+			ImGui::Text("Maximum Server RAM:");
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(80.0f);
+			ImGui::InputInt("##c", &MaximumRAM);
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(60.0f);
+			Combo(Unit, 4, UnitSelectedIndex);
+			if (ImGui::Button("Install"))
+			{
+				if (MinimumRAM < MaximumRAM)
+				{
+					ShowRAMError = false;
+				}
+				else
+				{
+					ShowRAMError = true;
+				}
+				if (ServerName[0] == '\0')
+				{
+					AskNamePrompt = true;
+				}
+				else
+				{
+					AskNamePrompt = false;
+				}
+				for (auto& Server : Servers)
+				{
+					if (wstring2string(Server.Name) == ServerName)
+					{
+						NameAlreadyExists = true;
+						break;
+					}
+					else
+					{
+						NameAlreadyExists = false;
+					}
+				}
+				if (!ShowRAMError && !AskNamePrompt && !NameAlreadyExists)
+				{
+					InstallServer();
+				}
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel"))
+			{
+				ImGui::CloseCurrentPopup();
+			}
+			if (NameAlreadyExists)
+			{
+				ImGui::Text("This server name already exists!");
+			}
+			if (AskNamePrompt)
+			{
+				ImGui::Text("Please provide a server name!");
+			}
+			if (ShowRAMError)
+			{
+				ImGui::Text("Minimum RAM can't be more or equal than the maximum RAM!");
+			}
+		}
+		ImGui::EndPopup();
 	}
 }
 
@@ -1022,7 +1281,7 @@ void CleanLog()
 {
 	if (Settings.ResetLog)
 	{
-		CurrentTask = L"Cleaning Log...";
+		CurrentTask = L"Cleaning log...";
 		if (fs::exists(GetCurrentFolder() + L"\\" + Settings.LogName))
 		{
 			fs::remove(GetCurrentFolder() + L"\\" + Settings.LogName);
