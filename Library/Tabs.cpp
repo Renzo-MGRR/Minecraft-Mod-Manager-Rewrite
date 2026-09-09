@@ -89,10 +89,6 @@ void ServersTab()
 	{
 		ImGui::ProgressBar(DownloadProgress);
 	}
-	if (ImGui::Button("Open Fabric Installer##Server"))
-	{
-		OpenFabricInstaller();
-	}
 	ImGui::Text("Current Server:");
 	if (!Servers.empty())
 	{
