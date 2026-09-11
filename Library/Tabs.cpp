@@ -34,6 +34,22 @@ void ProfilesTab()
 				GetProfiles(Profiles);
 			}).detach();
 		}
+		if (ImGui::Button("Remove profile"))
+		{
+			ImGui::OpenPopup("Removeprofile");
+		}
+		if (ImGui::BeginPopup("Removeprofile"))
+		{
+			ImGui::Text("Are you sure you want to remove this profile?");
+			if (ImGui::Button("Remove##Profile"))
+			{
+				//Remove profile here
+			}
+			if (ImGui::Button("Cancel##Profile"))
+			{
+				ImGui::CloseCurrentPopup();
+			}
+		}
 		Profile& CurrentProfile = Profiles[ProfileIndex];
 		ImGui::FileBrowser& ModPackFileBrowser = CurrentProfile.FileBrowserVector.back();
 		if (ImGui::Button("Add Modpacks")) //They're called modpacks but they can include all object types, not just mods
@@ -106,6 +122,22 @@ void ServersTab()
 					Servers.clear();
 					GetServers(Servers);
 				}).detach();
+		}
+		if (ImGui::Button("Remove server"))
+		{
+			ImGui::OpenPopup("Removeserver");
+		}
+		if (ImGui::BeginPopup("Removeserver"))
+		{
+			ImGui::Text("Are you sure you want to remove this server?");
+			if (ImGui::Button("Remove##Server"))
+			{
+				//Remove profile here
+			}
+			if (ImGui::Button("Cancel##Server"))
+			{
+				ImGui::CloseCurrentPopup();
+			}
 		}
 		Profile& CurrentServer = Servers[ServerIndex];
 		ImGui::FileBrowser& ModPackFileBrowser = CurrentServer.FileBrowserVector.back();

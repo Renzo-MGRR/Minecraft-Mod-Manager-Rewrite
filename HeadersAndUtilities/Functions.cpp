@@ -698,6 +698,7 @@ void GetServers(std::vector<Profile>& ServersVector)
 		LoadModdedServerData(NewServer, CurrentServerName);
 		Servers.push_back(NewServer);
 	}
+	CurrentTask = L"";
 }
 
 void GetProfiles(std::vector<Profile>& ProfilesVector)
@@ -734,7 +735,21 @@ void MoveObjectByState(ObjectStruct& ObjectStruct, int ObjectIndex)
 			ObjectStruct.ObjectType.Folder + L"\\Disabled\\" + ObjectStruct.ObjectVector[ObjectIndex].FileName);
 	}
 }
-
+void AddObject(Profile& CurrentProfile, std::vector<ObjectStruct>& ProfileObjectStructVector, std::vector<std::filesystem::path> Selection, int POSIndex)
+{
+	for (fs::path& CurrentFile : Selection)
+	{
+		std::wstring wsFile = CurrentFile.wstring();
+		std::wstring Filename = CurrentFile.filename().wstring();
+		Object NewObject;
+		CurrentTask = L"Copying " + Filename;
+		fs::copy(wsFile, ProfileObjectStructVector[POSIndex].ObjectType.Folder + L"\\" + Filename, fs::copy_options::skip_existing);
+		NewObject = GetObjectInfo(Filename, ProfileObjectStructVector[POSIndex].ObjectType, true);
+		ProfileObjectStructVector[POSIndex].ObjectVector.insert(ProfileObjectStructVector[POSIndex].ObjectVector.begin(), NewObject);
+		//We insert the object into the vector to not fully reload profiles
+	}
+	CurrentTask = L"";
+}
 void ObjectList(Profile& CurrentProfile)
 {
 	std::vector<ObjectStruct>& ProfileObjectStructVector = CurrentProfile.ObjectStructVector;
@@ -754,17 +769,36 @@ void ObjectList(Profile& CurrentProfile)
 				ProfileFileBrowserVector[POSIndex].Display();
 				if (ProfileFileBrowserVector[POSIndex].HasSelected())
 				{
-					for (fs::path& CurrentFile : ProfileFileBrowserVector[POSIndex].GetMultiSelected())
+					std::vector<std::filesystem::path> Selection = ProfileFileBrowserVector[POSIndex].GetMultiSelected();
+					std::thread NewThread(AddObject, std::ref(CurrentProfile), std::ref(ProfileObjectStructVector), Selection, POSIndex);
+					NewThread.detach();
+					ProfileFileBrowserVector[POSIndex].ClearSelected();
+				}
+				ImGui::SameLine();
+				if (ImGui::Button(("Remove all " + wstring2string(ObjectType) + "##" + std::to_string(POSIndex)).c_str()))
+				{
+					ImGui::OpenPopup(("Remove all " + wstring2string(ObjectType) + "##Popup" + std::to_string(POSIndex)).c_str());
+				}
+				if (ImGui::BeginPopup(("Remove all " + wstring2string(ObjectType) + "##Popup" + std::to_string(POSIndex)).c_str()))
+				{
+					ImGui::Text(("Are you sure you want to remove all " + wstring2string(ObjectType) + "?").c_str());
+					if (ImGui::Button(("Remove all##Confirm" + wstring2string(ObjectType) + std::to_string(POSIndex)).c_str()))
 					{
-						std::wstring wsFile = CurrentFile.wstring();
-						std::wstring Filename = CurrentFile.filename().wstring();
-						Object NewObject;
-						fs::copy(wsFile, ProfileObjectStructVector[POSIndex].ObjectType.Folder + L"\\" + Filename, fs::copy_options::skip_existing);
-						NewObject = GetObjectInfo(Filename, ProfileObjectStructVector[POSIndex].ObjectType, true);
-						ProfileObjectStructVector[POSIndex].ObjectVector.insert(ProfileObjectStructVector[POSIndex].ObjectVector.begin(), NewObject);
-						//We insert the object into the vector to not fully reload profiles
-						ProfileFileBrowserVector[POSIndex].ClearSelected();
+						for (int t = 0; t < ProfileObjectStructVector[POSIndex].ObjectVector.size(); t++)
+						{
+							fs::remove(CurrentProfile.Directory + L"\\" + ObjectType + L"\\" + ProfileObjectStructVector[POSIndex].ObjectVector[t].FileName);
+							fs::remove(CurrentProfile.Directory + L"\\" + ObjectType + L"\\Metadata\\" + fs::path(ProfileObjectStructVector[POSIndex].ObjectVector[t].FileName).stem().wstring() + L".json");
+							ProfileObjectStructVector[POSIndex].ObjectVector.erase(ProfileObjectStructVector[POSIndex].ObjectVector.begin() + t);
+							t--;
+						}
+						ImGui::CloseCurrentPopup();
 					}
+					ImGui::SameLine();
+					if (ImGui::Button(("Cancel##" + wstring2string(ObjectType) + std::to_string(POSIndex)).c_str()))
+					{
+						ImGui::CloseCurrentPopup();
+					}
+					ImGui::EndPopup();
 				}
 				if (ImGui::BeginTable(("##" + wstring2string(ObjectType) + "##" + std::to_string(POSIndex)).c_str(), 4))
 				{
@@ -1194,7 +1228,7 @@ void InstallServer()
 		NewServer.Directory + L"\\server.jar", MemBuffer);
 	Servers.push_back(NewServer);
 	MemBuffer = "";
-	//I need to execute the server and accept eula here
+	//I need to execute the server and accept eula here, using handle objects to detect the execution
 	CurrentTask = L"Server successfully installed!";
 
 }
