@@ -7,6 +7,16 @@
 #include "..\IniReader\IniReader.h"
 #include "Settings.h"
 
+void RemoveJsonObject(std::string& Id, std::wstring& ProfilesFile);
+
+void RewriteProfilesFile(json& JsonData, std::wstring& ProfilesFile);
+
+void ReloadProfiles(std::vector<Profile>& ProfilesVector, int& Index);
+
+void ManageObjects(std::vector<Profile>& Vector, int& Index, int Id);
+
+void RemoveProfile(std::vector<Profile>& Vector, int& Index);
+
 void OpenFabricInstaller();
 
 void ChangeObjectTypeAvailability(ObjectType& ObjectType);

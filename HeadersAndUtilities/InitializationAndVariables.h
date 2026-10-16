@@ -33,7 +33,7 @@ struct ObjectStruct
 	ObjectType ObjectType;
 };
 struct Profile {
-	std::wstring Id;
+	std::string Id;
 	std::wstring Name;
 	std::wstring Version;
 	std::wstring NameAndVersion;

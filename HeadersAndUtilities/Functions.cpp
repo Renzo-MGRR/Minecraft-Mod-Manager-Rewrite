@@ -234,96 +234,107 @@ bool TextInput(std::wstring Description, std::string& StringHandler)
 	}
 }
 
-void Execute(const std::wstring& cmdLine, const std::wstring& RunFrom, bool Silent, bool WaitTillFinish)
+std::string extractBetweenDelimiters(const std::string& str, const std::string& start_delim, const std::string& end_delim)
 {
-	SECURITY_ATTRIBUTES saAttr;
-	saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
-	saAttr.bInheritHandle = TRUE;
-	saAttr.lpSecurityDescriptor = NULL;
-	STARTUPINFOW si = { 0 };
-	DWORD dwCreationFlags = 0;
-
-	if (Silent)
+	size_t first_delim_pos = str.find(start_delim);
+	if (first_delim_pos == std::string::npos)
 	{
-		si.dwFlags |= STARTF_USESHOWWINDOW;
-		si.wShowWindow = SW_HIDE;
-		dwCreationFlags |= CREATE_NO_WINDOW;
+		return "";
 	}
-	PROCESS_INFORMATION pi;
-	ZeroMemory(&pi, sizeof(pi));
-	LPWSTR CmdL = const_cast<LPWSTR>(cmdLine.c_str());
-	if (CreateProcessW(
-		nullptr,
-		CmdL,
-		NULL,
-		NULL,
-		TRUE,
-		dwCreationFlags,
-		NULL,
-		RunFrom.c_str(),
-		&si,
-		&pi) == 0)
+	size_t start_pos = first_delim_pos + start_delim.length();
+	size_t second_delim_pos = str.find(end_delim, start_pos);
+	if (second_delim_pos == std::string::npos)
 	{
-		DWORD Error = GetLastError();
-		WriteToLog(L"Error code:" + std::to_wstring(GetLastError()));
+		return "";
 	}
-	if (WaitTillFinish)
-	{
-		WaitForSingleObject(pi.hProcess, INFINITE);
-	}
-	CloseHandle(pi.hProcess);
-	CloseHandle(pi.hThread);
+	size_t length = second_delim_pos - start_pos;
+	return str.substr(start_pos, length);
 }
 
-bool ProfilesFound(std::wstring ProfilesFile) 
+static size_t WriteToMemory(void* contents, size_t size, size_t nmemb, void* userp)
 {
-	if (fs::exists(ProfilesFile) && !fs::is_empty(ProfilesFile)) // We check if launcher_profiles.json exists
+	size_t realsize = size * nmemb;
+	std::string* buf = static_cast<std::string*>(userp);
+	buf->append(static_cast<char*>(contents), realsize);
+	return realsize;
+}
+
+static size_t WriteData(void* ptr, size_t size, size_t nmemb, FILE* stream)
+{
+	size_t written = fwrite(ptr, size, nmemb, stream);
+	return written;
+}
+
+FILE* SetCURLOptions(CURL* curlobj, std::wstring File, std::string* MemoryBuffer, std::string& URL)
+{
+	curl_easy_setopt(curlobj, CURLOPT_URL, URL.c_str());
+	curl_easy_setopt(curlobj, CURLOPT_XFERINFOFUNCTION, ProgressCallback);
+	curl_easy_setopt(curlobj, CURLOPT_NOPROGRESS, 0L);
+	std::string sFile = wstring2string(File);
+	FILE* FileObj = NULL;
+	if (File != L"")
 	{
-		return true;
+		FileObj = fopen(sFile.c_str(), "wb");
+		if (FileObj == NULL) {
+			WriteToLog(string2wstring(strerror(errno)));
+			return FileObj;
+		}
+		curl_easy_setopt(curlobj, CURLOPT_WRITEFUNCTION, WriteData);
+		curl_easy_setopt(curlobj, CURLOPT_WRITEDATA, FileObj);
 	}
 	else
 	{
-		return false;
+		curl_easy_setopt(curlobj, CURLOPT_WRITEFUNCTION, WriteToMemory);
+		curl_easy_setopt(curlobj, CURLOPT_WRITEDATA, MemoryBuffer);
 	}
+	curl_easy_setopt(curlobj, CURLOPT_FOLLOWLOCATION, 1L);
+	curl_easy_setopt(curlobj, CURLOPT_USERAGENT, "libcurl-agent/1.0");
+	curl_easy_setopt(curlobj, CURLOPT_SSL_VERIFYPEER, 0L);
+	return FileObj;
 }
 
-bool ParseVersion(Profile& CurrentProfile, json& ProfileJson)
+void DownloadFile(std::string URL, std::wstring File, std::string& MemoryBuffer)
 {
-	CurrentProfile.Version = string2wstring(ProfileJson.value("lastVersionId", ""));
-	if (CurrentProfile.Version.find(L"fabric") != std::wstring::npos)
-	{
-		CurrentProfile.ModLoader = L"Fabric";
+	CURL* curl = curl_easy_init();
+	if (curl) {
+		if (File != L"")
+		{
+			bool Download = false;
+			if (!fs::exists(GetCurrentFolder() + L"\\" + File))
+			{
+				Download = true;
+			}
+			else if (fs::is_empty(GetCurrentFolder() + L"\\" + File))
+			{
+				Download = true;
+			}
+			if (Download)
+			{
+				std::string sFile = wstring2string(File);
+				FILE* FileObj = SetCURLOptions(curl, File, &MemoryBuffer, URL);
+				if (FileObj != NULL)
+				{
+					CURLcode res = curl_easy_perform(curl);
+					fclose(FileObj);
+					if (res != CURLE_OK)
+					{
+						if (fs::exists(File))
+						{
+							fs::remove(File);
+						}
+					}
+				}
+				curl_easy_cleanup(curl);
+			}
+		}
+		else
+		{
+			SetCURLOptions(curl, File, &MemoryBuffer, URL);
+			CURLcode res = curl_easy_perform(curl);
+			curl_easy_cleanup(curl);
+		}
 	}
-	else if (CurrentProfile.Version.find(L"forge") != std::wstring::npos)
-	{
-		CurrentProfile.ModLoader = L"Forge";
-	}
-	else
-	{
-		return false; //We skip non-modded profiles
-	}
-	if (CurrentProfile.Version.find(L"+build") != std::wstring::npos) //Trim down to only game version
-	{
-		CurrentProfile.Version.erase(0, 31);
-	}
-	else
-	{
-		CurrentProfile.Version.erase(0, 21); 
-	}
-	return true;
-};
-
-std::wstring CombineNameAndVersion(Profile& CurrentProfile)
-{
-	std::wstring NameAndVersion = L"";
-	NameAndVersion = CurrentProfile.Name;
-	NameAndVersion.insert(NameAndVersion.size(), L" (");
-	NameAndVersion = NameAndVersion + CurrentProfile.Version;
-	NameAndVersion.insert(NameAndVersion.size(), L")");
-	// Example: fabric-loader-0.19.2-26.2 (26.2)
-	return NameAndVersion;
 }
-
 std::wstring JoinAuthorsFromJson(const json& ModJson)
 {
 	std::vector<std::string> authorStr;
@@ -365,6 +376,7 @@ std::wstring ParseJsonTextArray(json& JsonArray)
 	}
 	return Description;
 }
+
 std::wstring GetResourcePackDescription(json& JsonObject)
 {
 	std::wstring Description;
@@ -437,7 +449,7 @@ Object GetObjectInfo(std::wstring& ObjectFilename, ObjectType& ObjectType, bool 
 		//We need to erase end of line characters in order to avoid parsing errors. Idk why really
 		std::string ObjectJsonString = "";
 		std::string line = "";
-		while (std::getline(ObjectJson, line)) 
+		while (std::getline(ObjectJson, line))
 		{
 			ObjectJsonString += line;
 		}
@@ -473,25 +485,6 @@ Object GetObjectInfo(std::wstring& ObjectFilename, ObjectType& ObjectType, bool 
 	return NewObject;
 }
 
-std::wstring GetObjectFolder(ObjectType& ObjectType, Profile& CurrentProfile)
-{
-	std::wstring Folder;
-	if (ObjectType.Type == L"Mods")
-	{
-		Folder = L"mods";
-	}
-	else if (ObjectType.Type == L"Resource Packs")
-	{
-		Folder = L"resourcepacks";
-	}
-	else // Shader Packs
-	{
-		Folder = L"shaderpacks";
-	}
-	Folder = CurrentProfile.Directory + L"\\" + Folder;
-	return Folder;
-}
-
 std::wstring GetObjectType(std::wstring& Folder)
 {
 	std::wstring Type;
@@ -509,215 +502,144 @@ std::wstring GetObjectType(std::wstring& Folder)
 	}
 	return Type;
 }
-ObjectStruct GetObjects(ObjectType& ObjectType, Profile& CurrentProfile)
+
+void AddModPacks(Profile& CurrentProfile, std::vector<fs::path> ModPackList)
 {
-	CurrentTask = L"Getting " + ObjectType.Type + L" data on " + CurrentProfile.Name + L"...";
-	ObjectStruct Objects;
-	Objects.ObjectType = ObjectType;
-	Objects.ObjectType.Folder = GetObjectFolder(ObjectType, CurrentProfile);
-	std::vector<std::wstring> ObjectFileList;
-	std::vector<std::wstring> ObjectDisabledFileList;
-	ObjectFileList = getInDirectoryW(Objects.ObjectType.Folder, false);
-	ObjectDisabledFileList = getInDirectoryW(Objects.ObjectType.Folder + L"\\Disabled", false);
-	for (std::wstring& CurrentFile : ObjectFileList)
+	DisableProfileSelection = true;
+	DisableServerSelection = true;
+	int ModsObjectStructIndex = 0;
+	int ResourcePacksObjectStructIndex = 0;
+	int ShaderPacksObjectStructIndex = 0;
+	for (int i = 0; i < CurrentProfile.ObjectStructVector.size(); i++)
 	{
-		if (Objects.ObjectType.Type == L"Resource Packs" || Objects.ObjectType.Type == L"Shader Packs")
+		if (CurrentProfile.ObjectStructVector[i].ObjectType.Type == L"Mods")
 		{
-			if (fs::path(CurrentFile).extension() == ".zip")
+			ModsObjectStructIndex = i;
+			continue;
+		}
+		else if (CurrentProfile.ObjectStructVector[i].ObjectType.Type == L"Resource Packs")
+		{
+			ResourcePacksObjectStructIndex = i;
+			continue;
+		}
+		else //Shader Object Struct
+		{
+			ShaderPacksObjectStructIndex = i;
+			continue;
+		}
+	}
+	for (fs::path ModPack : ModPackList)
+	{
+		std::wstring wsModPackFolder = ModPack.parent_path().wstring() + L"\\" + ModPack.stem().wstring();
+		if (!fs::is_directory(ModPack)) // Zip modpacks
+		{
+			if (!fs::exists(wsModPackFolder)) // If it already exists, I assume it's already extracted
 			{
-				Objects.ObjectVector.push_back(GetObjectInfo(CurrentFile, Objects.ObjectType, true));
+				CurrentTask = L"Extracting modpack: " + std::wstring(ModPack);
+				fs::create_directory(wsModPackFolder);
+				std::string sModPackFolder = wstring2string(wsModPackFolder);
+				SevenZip.extract(ModPack.string(), sModPackFolder);
+				CurrentTask = L"";
 			}
 		}
-		else
+		if (fs::exists(wsModPackFolder + L"\\modrinth.index.json")) //Modrinth modpack
 		{
-			if (Objects.ObjectType.Type == L"Mods")
+			std::ifstream ModpackObjects(wsModPackFolder + L"\\modrinth.index.json");
+			json data = json::parse(ModpackObjects);
+			std::string DownloadURL = "";
+			std::wstring Path = L"";
+			std::wstring FullPath = L"";
+			std::wstring Name = L"";
+			std::wstring DownloadTo = L"";
+			for (auto& file : data["files"])
 			{
-				if (fs::path(CurrentFile).extension() == ".jar")
+				if (file.contains("downloads") && file["downloads"].is_array())
 				{
-					Objects.ObjectVector.push_back(GetObjectInfo(CurrentFile, Objects.ObjectType, true));
+					for (auto& item : file["downloads"])
+					{
+						if (item.is_string())
+						{
+							DownloadURL = item.get<std::string>();
+						}
+					}
+				}
+				if (file.contains("path") && file["path"].is_string())
+				{
+					int pos = file.value("path", "").find("/");
+					Path = string2wstring(file.value("path", "").substr(0, pos));
+					Name = string2wstring(file.value("path", "").substr(pos + 1, file.value("path", "").size()));
+					FullPath = string2wstring(file.value("path", ""));
+					std::wstring NeededPath = wsModPackFolder + L"\\overrides\\" + Path;
+					CreateIfNotExists(NeededPath);
+					DownloadTo = NeededPath + L"\\" + Name;
+				}
+				if (DownloadURL != "" && DownloadTo != L"" && !fs::exists(DownloadTo))
+				{
+					std::string MemoryBuffer = "";
+					CurrentTask = L"Downloading file: " + Name;
+					DownloadFile(DownloadURL, DownloadTo, MemoryBuffer);
+					CurrentTask = L"";
 				}
 			}
+			ModpackObjects.close();
 		}
-	}
-	for (std::wstring& CurrentDisabledFile : ObjectDisabledFileList)
-	{
-		if (Objects.ObjectType.Type == L"Resource Packs" || Objects.ObjectType.Type == L"Shader Packs")
+		for (std::wstring& FileOrFolder : getAllInDirectoryW(wsModPackFolder + L"\\overrides"))
 		{
-			if (fs::path(CurrentDisabledFile).extension() == ".zip")
+			if (fs::is_directory(wsModPackFolder + L"\\overrides\\" + FileOrFolder))
 			{
-				Objects.ObjectVector.push_back(GetObjectInfo(CurrentDisabledFile, Objects.ObjectType, false));
-			}
-		}
-		else
-		{
-			if (Objects.ObjectType.Type == L"Mods")
-			{
-				if (fs::path(CurrentDisabledFile).extension() == ".jar")
+				for (std::wstring& CurrentObject : getInDirectoryW(wsModPackFolder + L"\\overrides\\" + FileOrFolder, false))
 				{
-					Objects.ObjectVector.push_back(GetObjectInfo(CurrentDisabledFile, Objects.ObjectType, false));
+					CurrentTask = L"Copying item: " + FileOrFolder + LR"(\)" + CurrentObject;
+					if (FileOrFolder == L"mods" || FileOrFolder == L"resourcepacks" || FileOrFolder == L"shaderpacks")
+					{
+						ObjectType NewObjectType;
+						NewObjectType.Folder = wsModPackFolder + L"\\overrides\\" + FileOrFolder;
+						NewObjectType.IsEnabled = true;
+						NewObjectType.Type = GetObjectType(FileOrFolder);
+						Object NewObject = GetObjectInfo(CurrentObject, NewObjectType, true);
+						if (FileOrFolder == L"mods")
+						{
+							CurrentProfile.ObjectStructVector[ModsObjectStructIndex].ObjectVector.push_back(NewObject);
+						}
+						else if (FileOrFolder == L"resourcepacks")
+						{
+							CurrentProfile.ObjectStructVector[ResourcePacksObjectStructIndex].ObjectVector.push_back(NewObject);
+						}
+						else //Shader Packs
+						{
+							CurrentProfile.ObjectStructVector[ShaderPacksObjectStructIndex].ObjectVector.push_back(NewObject);
+						}
+					}
+					std::wstring ParentFolder = CurrentProfile.Directory + L"\\" + FileOrFolder;
+					CreateIfNotExists(ParentFolder);
+					fs::copy(wsModPackFolder + L"\\overrides\\" + FileOrFolder + L"\\" + CurrentObject, ParentFolder + L"\\" + CurrentObject, fs::copy_options::skip_existing);
 				}
-			}
-		}
-	}
-	return Objects;
-}
-
-std::vector<ObjectStruct> GetObjectStructVector(Profile& CurrentProfile)
-{
-	CurrentTask = L"Getting profile objects...";
-	std::vector<ObjectStruct> ObjectStruct;
-	for (ObjectType& CurrentObjectType : Settings.GlobalObjectTypes)
-	{
-		ObjectStruct.push_back(GetObjects(CurrentObjectType, CurrentProfile));
-	}
-	return ObjectStruct;
-}
-
-void ChangeObjectTypeAvailability(ObjectType& ObjectType)
-{
-	std::wstring NewAvailableObjectTypes;
-	for (Profile& CurrentProfile : Profiles)
-	{
-		for (ObjectStruct& CurrentObjectStruct : CurrentProfile.ObjectStructVector)
-		{
-			if (ObjectType.Type == CurrentObjectStruct.ObjectType.Type)
-			{
-				CurrentObjectStruct.ObjectType.IsEnabled = ObjectType.IsEnabled;
-			}
-		}
-	}
-	for (int j = 0; j < Settings.GlobalObjectTypes.size(); j++)
-	{
-		if (Settings.GlobalObjectTypes[j].IsEnabled)
-		{
-			if (j != Settings.GlobalObjectTypes.size() - 1)
-			{
-				NewAvailableObjectTypes = NewAvailableObjectTypes + Settings.GlobalObjectTypes[j].Type + L','; //If it's the last item, skip the ',' character
 			}
 			else
 			{
-				NewAvailableObjectTypes = NewAvailableObjectTypes + Settings.GlobalObjectTypes[j].Type;
+				CurrentTask = L"Copying item: " + FileOrFolder;
+				fs::copy(wsModPackFolder + L"\\overrides\\" + FileOrFolder, CurrentProfile.Directory + L"\\" + FileOrFolder);
 			}
 		}
+		CurrentTask = L"";
 	}
-	iniReader.WriteString("Settings", "EnabledObjectTypes", wstring2string(NewAvailableObjectTypes));
+	DisableProfileSelection = false;
+	DisableServerSelection = true;
+	DownloadProgress = 0.0f;
 }
 
-std::vector<ImGui::FileBrowser> GetFileBrowserVector(Profile& CurrentProfile) //File Browsers don't have ids like most ImGui objects do, 
-//so we have to make a vector
+void AddObject(Profile& CurrentProfile, std::vector<ObjectStruct>& ProfileObjectStructVector, std::vector<std::filesystem::path> Selection, int POSIndex)
 {
-	std::vector<ImGui::FileBrowser> FileBrowserVector;
-	for (int i = 0; i < CurrentProfile.ObjectStructVector.size(); i++)
+	for (fs::path& CurrentFile : Selection)
 	{
-		ImGui::FileBrowser FileDialog(FileBrowserFlags);
-		FileDialog.SetTitle(("Add " + wstring2string(CurrentProfile.ObjectStructVector[i].ObjectType.Type)).c_str());
-		FileDialog.SetDirectory(GetDownloadsFolder());
-		if (CurrentProfile.ObjectStructVector[i].ObjectType.Type == L"Mods")
-		{
-			FileDialog.SetTypeFilters({ ".jar" });
-		}
-		else
-		{
-			FileDialog.SetTypeFilters({ ".zip" });
-		}
-		FileBrowserVector.push_back(FileDialog);
-	}
-	ImGui::FileBrowser ModPackFileDialog(FileBrowserFlags);
-	ModPackFileDialog.SetTitle("Add Modpack");
-	ModPackFileDialog.SetDirectory(GetDownloadsFolder());
-	ModPackFileDialog.SetTypeFilters({ ".zip" , ".mrpack" });
-	FileBrowserVector.push_back(ModPackFileDialog);
-	return FileBrowserVector;
-}
-void RewriteProfilesFile(json& JsonData, std::wstring& ProfilesFile)
-{
-	std::ofstream LauncherProfiles(wstring2string(ProfilesFile));
-	LauncherProfiles << std::setw(4) << JsonData << std::endl;
-}
-std::chrono::system_clock::time_point GFG(const std::string& datetimeString, const std::string& format)
-{
-	tm tmStruct = {};
-	std::istringstream ss(datetimeString);
-	ss >> std::get_time(&tmStruct, format.c_str());
-	return std::chrono::system_clock::from_time_t(mktime(&tmStruct));
-}
-void CreateProfileFolders(Profile& CurrentProfile)
-{
-	for (int i = 0; i < CurrentProfile.ObjectStructVector.size(); i++)
-	{
-		CreateIfNotExists(CurrentProfile.ObjectStructVector[i].ObjectType.Folder);
-		std::wstring DisabledFolder = CurrentProfile.ObjectStructVector[i].ObjectType.Folder + L"\\Disabled";
-		CreateIfNotExists(DisabledFolder);
-	}
-}
-void LoadModdedProfileData(Profile& CurrentProfile, json& ProfileJson, std::string Id, json& JsonData)
-{
-	CurrentTask = L"Loading profile info...";
-	CurrentProfile.Id = string2wstring(std::string(Id));
-	CurrentProfile.Name = string2wstring(ProfileJson.value("name", ""));
-	CurrentProfile.WsDate = string2wstring(ProfileJson.value("lastUsed", ""));
-	CurrentProfile.WsDate.erase(23, 1);
-	CurrentProfile.WsDate.erase(10, 1);
-	CurrentProfile.WsDate.insert(10, L" ");
-	std::string sDate = wstring2string(CurrentProfile.WsDate);
-	const std::string format = "%Y-%m-%d %H:%M:%S";
-	CurrentProfile.Date = GFG(sDate, format);
-	CurrentProfile.NameAndVersion = CombineNameAndVersion(CurrentProfile);
-	CurrentProfile.Directory = string2wstring(ProfileJson.value("gameDir", ""));
-	CurrentProfile.JsonObject = ProfileJson;
-	if (CurrentProfile.Directory == L"")
-	{
-		CurrentProfile.Directory = MinecraftDir + L"\\profiles\\" + CurrentProfile.Name;
-		ProfileJson["gameDir"] = wstring2string(CurrentProfile.Directory);
-		RewriteProfilesFile(JsonData, ProfilesFile);
-	}
-	CreateIfNotExists(CurrentProfile.Directory);
-	CurrentProfile.ObjectStructVector = GetObjectStructVector(CurrentProfile);
-	CreateProfileFolders(CurrentProfile);
-	CurrentProfile.FileBrowserVector = GetFileBrowserVector(CurrentProfile);
-}
-
-void LoadModdedServerData(Profile& CurrentServer, std::wstring& ServerName)
-{
-	CurrentTask = L"Loading server info...";
-	CurrentServer.Name = ServerName;
-	CurrentServer.Version = L"";
-	CurrentServer.NameAndVersion = CombineNameAndVersion(CurrentServer);
-	CurrentServer.Directory = MinecraftDir + L"\\servers\\" + ServerName;
-	CurrentServer.ObjectStructVector = GetObjectStructVector(CurrentServer);
-	CreateIfNotExists(CurrentServer.Directory);
-	CreateProfileFolders(CurrentServer);
-	CurrentServer.FileBrowserVector = GetFileBrowserVector(CurrentServer);
-}
-
-void GetServers(std::vector<Profile>& ServersVector)
-{
-	for (std::wstring CurrentServerName : getInDirectoryW(MinecraftDir + L"\\servers\\", true))
-	{
-		Profile NewServer;
-		LoadModdedServerData(NewServer, CurrentServerName);
-		Servers.push_back(NewServer);
-	}
-	CurrentTask = L"";
-}
-
-void GetProfiles(std::vector<Profile>& ProfilesVector)
-{
-	CurrentTask = L"Loading profiles...";
-	if (ProfilesFound(ProfilesFile))
-	{
-		std::ifstream LauncherProfiles(wstring2string(ProfilesFile));
-		json data = json::parse(LauncherProfiles);
-		Profile CurrentProfile;
-		for (auto& [Id, ProfileJson] : data["profiles"].items())
-		{
-			if (ParseVersion(CurrentProfile, ProfileJson))
-			{
-				LoadModdedProfileData(CurrentProfile, ProfileJson, Id, data);
-				ProfilesVector.push_back(CurrentProfile);
-			}
-		}	
-		LauncherProfiles.close();
+		std::wstring wsFile = CurrentFile.wstring();
+		std::wstring Filename = CurrentFile.filename().wstring();
+		Object NewObject;
+		CurrentTask = L"Copying " + Filename;
+		fs::copy(wsFile, ProfileObjectStructVector[POSIndex].ObjectType.Folder + L"\\" + Filename, fs::copy_options::skip_existing);
+		NewObject = GetObjectInfo(Filename, ProfileObjectStructVector[POSIndex].ObjectType, true);
+		ProfileObjectStructVector[POSIndex].ObjectVector.insert(ProfileObjectStructVector[POSIndex].ObjectVector.begin(), NewObject);
+		//We insert the object into the vector to not fully reload profiles
 	}
 	CurrentTask = L"";
 }
@@ -735,21 +657,7 @@ void MoveObjectByState(ObjectStruct& ObjectStruct, int ObjectIndex)
 			ObjectStruct.ObjectType.Folder + L"\\Disabled\\" + ObjectStruct.ObjectVector[ObjectIndex].FileName);
 	}
 }
-void AddObject(Profile& CurrentProfile, std::vector<ObjectStruct>& ProfileObjectStructVector, std::vector<std::filesystem::path> Selection, int POSIndex)
-{
-	for (fs::path& CurrentFile : Selection)
-	{
-		std::wstring wsFile = CurrentFile.wstring();
-		std::wstring Filename = CurrentFile.filename().wstring();
-		Object NewObject;
-		CurrentTask = L"Copying " + Filename;
-		fs::copy(wsFile, ProfileObjectStructVector[POSIndex].ObjectType.Folder + L"\\" + Filename, fs::copy_options::skip_existing);
-		NewObject = GetObjectInfo(Filename, ProfileObjectStructVector[POSIndex].ObjectType, true);
-		ProfileObjectStructVector[POSIndex].ObjectVector.insert(ProfileObjectStructVector[POSIndex].ObjectVector.begin(), NewObject);
-		//We insert the object into the vector to not fully reload profiles
-	}
-	CurrentTask = L"";
-}
+
 void ObjectList(Profile& CurrentProfile)
 {
 	std::vector<ObjectStruct>& ProfileObjectStructVector = CurrentProfile.ObjectStructVector;
@@ -872,106 +780,424 @@ void ObjectList(Profile& CurrentProfile)
 	}
 }
 
-std::string extractBetweenDelimiters(const std::string& str, const std::string& start_delim, const std::string& end_delim) 
+void ManageObjects(std::vector<Profile>& Vector, int& Index, int Id)
 {
-	size_t first_delim_pos = str.find(start_delim);
-	if (first_delim_pos == std::string::npos) 
+	Profile& CurrentProfile = Vector[Index];
+	ImGui::FileBrowser& ModPackFileBrowser = CurrentProfile.FileBrowserVector.back();
+	if (ImGui::Button(("Add Modpacks##" + std::to_string(Id)).c_str()))
 	{
-		return "";
+		ModPackFileBrowser.Open();
 	}
-	size_t start_pos = first_delim_pos + start_delim.length();
-	size_t second_delim_pos = str.find(end_delim, start_pos);
-	if (second_delim_pos == std::string::npos) 
+	ModPackFileBrowser.Display();
+	if (ModPackFileBrowser.HasSelected())
 	{
-		return "";
+		std::vector<fs::path> ModPackList = ModPackFileBrowser.GetMultiSelected();
+		std::thread NewThread(AddModPacks, std::ref(CurrentProfile), ModPackList);
+		NewThread.detach();
+		ModPackFileBrowser.ClearSelected();
 	}
-	size_t length = second_delim_pos - start_pos;
-	return str.substr(start_pos, length);
+	ObjectList(CurrentProfile);
 }
 
-static size_t WriteToMemory(void* contents, size_t size, size_t nmemb, void* userp)
+void RemoveProfile(std::vector<Profile>& Vector, int& Index)
 {
-	size_t realsize = size * nmemb;
-	std::string* buf = static_cast<std::string*>(userp);
-	buf->append(static_cast<char*>(contents), realsize);
-	return realsize;
-}
-
-static size_t WriteData(void* ptr, size_t size, size_t nmemb, FILE* stream) 
-{
-	size_t written = fwrite(ptr, size, nmemb, stream);
-	return written;
-}
-
-FILE* SetCURLOptions(CURL* curlobj, std::wstring File, std::string* MemoryBuffer, std::string& URL)
-{
-	curl_easy_setopt(curlobj, CURLOPT_URL, URL.c_str());
-	curl_easy_setopt(curlobj, CURLOPT_XFERINFOFUNCTION, ProgressCallback);
-	curl_easy_setopt(curlobj, CURLOPT_NOPROGRESS, 0L);
-	std::string sFile = wstring2string(File);
-	FILE* FileObj = NULL;
-	if (File != L"")
+	fs::remove_all(Vector[Index].Directory);
+	Vector.erase(Vector.begin() + Index);
+	if (Index != 0)
 	{
-		FileObj = fopen(sFile.c_str(), "wb");
-		if (FileObj == NULL) {
-			WriteToLog(string2wstring(strerror(errno)));
-			return FileObj;
-		}
-		curl_easy_setopt(curlobj, CURLOPT_WRITEFUNCTION, WriteData);
-		curl_easy_setopt(curlobj, CURLOPT_WRITEDATA, FileObj);
+		Index--;
+	}
+}
+
+HANDLE Execute(const std::wstring& cmdLine, const std::wstring& RunFrom, bool Silent, bool WaitTillFinish, bool ClosePrHandle)
+{
+	SECURITY_ATTRIBUTES saAttr;
+	saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
+	saAttr.bInheritHandle = TRUE;
+	saAttr.lpSecurityDescriptor = NULL;
+	STARTUPINFOW si = { 0 };
+	DWORD dwCreationFlags = 0;
+
+	if (Silent)
+	{
+		si.dwFlags |= STARTF_USESHOWWINDOW;
+		si.wShowWindow = SW_HIDE;
+		dwCreationFlags |= CREATE_NO_WINDOW;
+	}
+	PROCESS_INFORMATION pi;
+	ZeroMemory(&pi, sizeof(pi));
+	LPWSTR CmdL = const_cast<LPWSTR>(cmdLine.c_str());
+	if (CreateProcessW(
+		nullptr,
+		CmdL,
+		NULL,
+		NULL,
+		TRUE,
+		dwCreationFlags,
+		NULL,
+		RunFrom.c_str(),
+		&si,
+		&pi) == 0)
+	{
+		DWORD Error = GetLastError();
+		WriteToLog(L"Error code:" + std::to_wstring(GetLastError()));
+	}
+	if (WaitTillFinish)
+	{
+		WaitForSingleObject(pi.hProcess, INFINITE);
+	}
+	if (ClosePrHandle)
+	{
+		CloseHandle(pi.hProcess);
+	}
+	CloseHandle(pi.hThread);
+	return pi.hProcess;
+}
+
+bool ProfilesFound(std::wstring ProfilesFile) 
+{
+	if (fs::exists(ProfilesFile) && !fs::is_empty(ProfilesFile)) // We check if launcher_profiles.json exists
+	{
+		return true;
 	}
 	else
 	{
-		curl_easy_setopt(curlobj, CURLOPT_WRITEFUNCTION, WriteToMemory);
-		curl_easy_setopt(curlobj, CURLOPT_WRITEDATA, MemoryBuffer);
+		return false;
 	}
-	curl_easy_setopt(curlobj, CURLOPT_FOLLOWLOCATION, 1L);
-	curl_easy_setopt(curlobj, CURLOPT_USERAGENT, "libcurl-agent/1.0");
-	curl_easy_setopt(curlobj, CURLOPT_SSL_VERIFYPEER, 0L);
-	return FileObj;
 }
 
-void DownloadFile(std::string URL, std::wstring File, std::string& MemoryBuffer)
+bool ParseVersion(Profile& CurrentProfile, json& ProfileJson)
 {
-	CURL* curl = curl_easy_init();
-	if (curl) {
-		if (File != L"")
+	CurrentProfile.Version = string2wstring(ProfileJson.value("lastVersionId", ""));
+	if (CurrentProfile.Version.find(L"fabric") != std::wstring::npos)
+	{
+		CurrentProfile.ModLoader = L"Fabric";
+	}
+	else if (CurrentProfile.Version.find(L"forge") != std::wstring::npos)
+	{
+		CurrentProfile.ModLoader = L"Forge";
+	}
+	else
+	{
+		return false; //We skip non-modded profiles
+	}
+	if (CurrentProfile.Version.find(L"+build") != std::wstring::npos) //Trim down to only game version
+	{
+		CurrentProfile.Version.erase(0, 31);
+	}
+	else
+	{
+		CurrentProfile.Version.erase(0, 21); 
+	}
+	return true;
+};
+
+std::wstring CombineNameAndVersion(Profile& CurrentProfile)
+{
+	std::wstring NameAndVersion = L"";
+	NameAndVersion = CurrentProfile.Name;
+	NameAndVersion.insert(NameAndVersion.size(), L" (");
+	NameAndVersion = NameAndVersion + CurrentProfile.Version;
+	NameAndVersion.insert(NameAndVersion.size(), L")");
+	// Example: fabric-loader-0.19.2-26.2 (26.2)
+	return NameAndVersion;
+}
+
+std::wstring GetObjectFolder(ObjectType& ObjectType, Profile& CurrentProfile)
+{
+	std::wstring Folder;
+	if (ObjectType.Type == L"Mods")
+	{
+		Folder = L"mods";
+	}
+	else if (ObjectType.Type == L"Resource Packs")
+	{
+		Folder = L"resourcepacks";
+	}
+	else // Shader Packs
+	{
+		Folder = L"shaderpacks";
+	}
+	Folder = CurrentProfile.Directory + L"\\" + Folder;
+	return Folder;
+}
+
+ObjectStruct GetObjects(ObjectType& ObjectType, Profile& CurrentProfile)
+{
+	CurrentTask = L"Getting " + ObjectType.Type + L" data on " + CurrentProfile.Name + L"...";
+	ObjectStruct Objects;
+	Objects.ObjectType = ObjectType;
+	Objects.ObjectType.Folder = GetObjectFolder(ObjectType, CurrentProfile);
+	std::vector<std::wstring> ObjectFileList;
+	std::vector<std::wstring> ObjectDisabledFileList;
+	ObjectFileList = getInDirectoryW(Objects.ObjectType.Folder, false);
+	ObjectDisabledFileList = getInDirectoryW(Objects.ObjectType.Folder + L"\\Disabled", false);
+	for (std::wstring& CurrentFile : ObjectFileList)
+	{
+		if (Objects.ObjectType.Type == L"Resource Packs" || Objects.ObjectType.Type == L"Shader Packs")
 		{
-			bool Download = false;
-			if (!fs::exists(GetCurrentFolder() + L"\\" + File))
+			if (fs::path(CurrentFile).extension() == ".zip")
 			{
-				Download = true;
-			}
-			else if (fs::is_empty(GetCurrentFolder() + L"\\" + File))
-			{
-				Download = true;
-			}
-			if (Download)
-			{
-				std::string sFile = wstring2string(File);
-				FILE* FileObj = SetCURLOptions(curl, File, &MemoryBuffer, URL);
-				if (FileObj != NULL)
-				{
-					CURLcode res = curl_easy_perform(curl);
-					fclose(FileObj);
-					if (res != CURLE_OK) 
-					{
-						if (fs::exists(File))
-						{
-							fs::remove(File);
-						}
-					}
-				}
-				curl_easy_cleanup(curl);
+				Objects.ObjectVector.push_back(GetObjectInfo(CurrentFile, Objects.ObjectType, true));
 			}
 		}
 		else
 		{
-			SetCURLOptions(curl, File, &MemoryBuffer, URL);
-			CURLcode res = curl_easy_perform(curl);
-			curl_easy_cleanup(curl);
+			if (Objects.ObjectType.Type == L"Mods")
+			{
+				if (fs::path(CurrentFile).extension() == ".jar")
+				{
+					Objects.ObjectVector.push_back(GetObjectInfo(CurrentFile, Objects.ObjectType, true));
+				}
+			}
 		}
 	}
+	for (std::wstring& CurrentDisabledFile : ObjectDisabledFileList)
+	{
+		if (Objects.ObjectType.Type == L"Resource Packs" || Objects.ObjectType.Type == L"Shader Packs")
+		{
+			if (fs::path(CurrentDisabledFile).extension() == ".zip")
+			{
+				Objects.ObjectVector.push_back(GetObjectInfo(CurrentDisabledFile, Objects.ObjectType, false));
+			}
+		}
+		else
+		{
+			if (Objects.ObjectType.Type == L"Mods")
+			{
+				if (fs::path(CurrentDisabledFile).extension() == ".jar")
+				{
+					Objects.ObjectVector.push_back(GetObjectInfo(CurrentDisabledFile, Objects.ObjectType, false));
+				}
+			}
+		}
+	}
+	return Objects;
+}
+
+std::vector<ObjectStruct> GetObjectStructVector(Profile& CurrentProfile)
+{
+	CurrentTask = L"Getting profile objects...";
+	std::vector<ObjectStruct> ObjectStruct;
+	for (ObjectType& CurrentObjectType : Settings.GlobalObjectTypes)
+	{
+		ObjectStruct.push_back(GetObjects(CurrentObjectType, CurrentProfile));
+	}
+	return ObjectStruct;
+}
+
+void ChangeObjectTypeAvailability(ObjectType& ObjectType)
+{
+	std::wstring NewAvailableObjectTypes;
+	for (Profile& CurrentProfile : Profiles)
+	{
+		for (ObjectStruct& CurrentObjectStruct : CurrentProfile.ObjectStructVector)
+		{
+			if (ObjectType.Type == CurrentObjectStruct.ObjectType.Type)
+			{
+				CurrentObjectStruct.ObjectType.IsEnabled = ObjectType.IsEnabled;
+			}
+		}
+	}
+	for (int j = 0; j < Settings.GlobalObjectTypes.size(); j++)
+	{
+		if (Settings.GlobalObjectTypes[j].IsEnabled)
+		{
+			if (j != Settings.GlobalObjectTypes.size() - 1)
+			{
+				NewAvailableObjectTypes = NewAvailableObjectTypes + Settings.GlobalObjectTypes[j].Type + L','; //If it's the last item, skip the ',' character
+			}
+			else
+			{
+				NewAvailableObjectTypes = NewAvailableObjectTypes + Settings.GlobalObjectTypes[j].Type;
+			}
+		}
+	}
+	iniReader.WriteString("Settings", "EnabledObjectTypes", wstring2string(NewAvailableObjectTypes));
+}
+
+std::vector<ImGui::FileBrowser> GetFileBrowserVector(Profile& CurrentProfile) //File Browsers don't have ids like most ImGui objects do, 
+//so we have to make a vector
+{
+	std::vector<ImGui::FileBrowser> FileBrowserVector;
+	for (int i = 0; i < CurrentProfile.ObjectStructVector.size(); i++)
+	{
+		ImGui::FileBrowser FileDialog(FileBrowserFlags);
+		FileDialog.SetTitle(("Add " + wstring2string(CurrentProfile.ObjectStructVector[i].ObjectType.Type)).c_str());
+		FileDialog.SetDirectory(GetDownloadsFolder());
+		if (CurrentProfile.ObjectStructVector[i].ObjectType.Type == L"Mods")
+		{
+			FileDialog.SetTypeFilters({ ".jar" });
+		}
+		else
+		{
+			FileDialog.SetTypeFilters({ ".zip" });
+		}
+		FileBrowserVector.push_back(FileDialog);
+	}
+	ImGui::FileBrowser ModPackFileDialog(FileBrowserFlags);
+	ModPackFileDialog.SetTitle("Add Modpack");
+	ModPackFileDialog.SetDirectory(GetDownloadsFolder());
+	ModPackFileDialog.SetTypeFilters({ ".zip" , ".mrpack" });
+	FileBrowserVector.push_back(ModPackFileDialog);
+	return FileBrowserVector;
+}
+void RewriteProfilesFile(json& JsonData, std::wstring& ProfilesFile)
+{
+	std::ifstream LauncherProfilesI(wstring2string(ProfilesFile));
+	json OldData = json::parse(LauncherProfilesI);
+	LauncherProfilesI.close();
+	std::ofstream BkpLauncherProfiles(wstring2string(ProfilesFile) + ".bkp");
+	BkpLauncherProfiles << std::setw(4) << OldData << std::endl;
+	BkpLauncherProfiles.close();
+	std::ofstream LauncherProfilesO(wstring2string(ProfilesFile));
+	LauncherProfilesO << std::setw(4) << JsonData << std::endl;
+	LauncherProfilesO.close();
+}
+
+void RemoveJsonObject(std::string& Id, std::wstring& ProfilesFile)
+{
+	if (ProfilesFound(ProfilesFile))
+	{
+		std::ifstream LauncherProfiles(wstring2string(ProfilesFile));
+		json data = json::parse(LauncherProfiles);
+		LauncherProfiles.close();
+		data["profiles"].erase(data["profiles"].find(Id));
+		RewriteProfilesFile(data, ProfilesFile);
+	}
+}
+
+std::chrono::system_clock::time_point GFG(const std::string& datetimeString, const std::string& format)
+{
+	tm tmStruct = {};
+	std::istringstream ss(datetimeString);
+	ss >> std::get_time(&tmStruct, format.c_str());
+	return std::chrono::system_clock::from_time_t(mktime(&tmStruct));
+}
+void CreateProfileFolders(Profile& CurrentProfile)
+{
+	for (int i = 0; i < CurrentProfile.ObjectStructVector.size(); i++)
+	{
+		CreateIfNotExists(CurrentProfile.ObjectStructVector[i].ObjectType.Folder);
+		std::wstring DisabledFolder = CurrentProfile.ObjectStructVector[i].ObjectType.Folder + L"\\Disabled";
+		CreateIfNotExists(DisabledFolder);
+	}
+}
+void LoadModdedProfileData(Profile& CurrentProfile, json& ProfileJson, std::string Id, json& JsonData)
+{
+	CurrentTask = L"Loading profile info...";
+	CurrentProfile.Id = Id;
+	CurrentProfile.Name = string2wstring(ProfileJson.value("name", ""));
+	CurrentProfile.WsDate = string2wstring(ProfileJson.value("lastUsed", ""));
+	CurrentProfile.WsDate.erase(23, 1);
+	CurrentProfile.WsDate.erase(10, 1);
+	CurrentProfile.WsDate.insert(10, L" ");
+	std::string sDate = wstring2string(CurrentProfile.WsDate);
+	const std::string format = "%Y-%m-%d %H:%M:%S";
+	CurrentProfile.Date = GFG(sDate, format);
+	CurrentProfile.NameAndVersion = CombineNameAndVersion(CurrentProfile);
+	CurrentProfile.Directory = string2wstring(ProfileJson.value("gameDir", ""));
+	CurrentProfile.JsonObject = ProfileJson;
+	if (CurrentProfile.Directory == L"")
+	{
+		CurrentProfile.Directory = MinecraftDir + L"\\profiles\\" + CurrentProfile.Name;
+		ProfileJson["gameDir"] = wstring2string(CurrentProfile.Directory);
+		RewriteProfilesFile(JsonData, ProfilesFile);
+	}
+	CreateIfNotExists(CurrentProfile.Directory);
+	CurrentProfile.ObjectStructVector = GetObjectStructVector(CurrentProfile);
+	CreateProfileFolders(CurrentProfile);
+	CurrentProfile.FileBrowserVector = GetFileBrowserVector(CurrentProfile);
+}
+
+std::vector<std::string> LinesToVector(std::string File)
+{
+	std::vector<std::string> Vector;
+	if (fs::exists(File))
+	{
+		std::ifstream CurrentFile(File);
+		std::string currline;
+		if (CurrentFile.is_open())
+		{
+			while (std::getline(CurrentFile, currline))
+			{
+				Vector.push_back(currline);
+			}
+			CurrentFile.close();
+		}
+	}
+	return Vector;
+}
+
+std::wstring GetServerVersion(Profile& CurrentServer)
+{
+	std::wstring Version = L"";
+	if (!fs::exists(CurrentServer.Directory + L"\\install.properties"))
+	{
+		std::string FileToExtract = "install.properties";
+		SevenZip.extractMatching(wstring2string(CurrentServer.Directory) + "\\server.jar", FileToExtract, wstring2string(CurrentServer.Directory));
+	}
+	std::vector<std::string> InstallLines = LinesToVector(wstring2string(CurrentServer.Directory + L"\\install.properties"));
+	for (std::string& Line : InstallLines)
+	{
+		if (Line.find("game-version=") != std::string::npos)
+		{
+			Version = string2wstring(Line.substr(13));
+		}
+	}
+	return Version;
+}
+
+void LoadModdedServerData(Profile& CurrentServer, std::wstring& ServerName)
+{
+	CurrentTask = L"Loading server info...";
+	CurrentServer.Name = ServerName;
+	CurrentServer.Directory = MinecraftDir + L"\\servers\\" + ServerName;
+	CurrentServer.Version = GetServerVersion(CurrentServer);
+	CurrentServer.NameAndVersion = CombineNameAndVersion(CurrentServer);
+	CurrentServer.ObjectStructVector = GetObjectStructVector(CurrentServer);
+	CreateIfNotExists(CurrentServer.Directory);
+	CreateProfileFolders(CurrentServer);
+	CurrentServer.FileBrowserVector = GetFileBrowserVector(CurrentServer);
+}
+
+void GetServers(std::vector<Profile>& ServersVector)
+{
+	for (std::wstring CurrentServerName : getInDirectoryW(MinecraftDir + L"\\servers\\", true))
+	{
+		Profile NewServer;
+		LoadModdedServerData(NewServer, CurrentServerName);
+		Servers.push_back(NewServer);
+	}
+	CurrentTask = L"";
+}
+
+void GetProfiles(std::vector<Profile>& ProfilesVector)
+{
+	CurrentTask = L"Loading profiles...";
+	if (ProfilesFound(ProfilesFile))
+	{
+		std::ifstream LauncherProfiles(wstring2string(ProfilesFile));
+		json data = json::parse(LauncherProfiles);
+		Profile CurrentProfile;
+		for (auto& [Id, ProfileJson] : data["profiles"].items())
+		{
+			if (ParseVersion(CurrentProfile, ProfileJson))
+			{
+				LoadModdedProfileData(CurrentProfile, ProfileJson, Id, data);
+				ProfilesVector.push_back(CurrentProfile);
+			}
+		}	
+		LauncherProfiles.close();
+	}
+	CurrentTask = L"";
+}
+
+void ReloadProfiles(std::vector<Profile>& ProfilesVector, int& Index)
+{
+	Index = 0;
+	ProfilesVector.clear();
+	GetProfiles(Profiles);
 }
 
 std::vector<std::string> GetFabricInstallerVersions(std::string Filecontents)
@@ -1026,138 +1252,13 @@ void OpenFabricInstaller()
 				{
 					DownloadFile(URL, string2wstring(FabricInstaller), FileInMemory);
 				}
-				Execute(string2wstring(FabricInstaller), GetCurrentFolder(), false, false);
+				Execute(string2wstring(FabricInstaller), GetCurrentFolder(), false, false, true);
 			}
 		}).detach();
 }
-
-void AddModPacks(Profile& CurrentProfile, std::vector<fs::path> ModPackList)
-{
-	DisableProfileSelection = true;
-	DisableServerSelection = true;
-	int ModsObjectStructIndex = 0;
-	int ResourcePacksObjectStructIndex = 0;
-	int ShaderPacksObjectStructIndex = 0;
-	for (int i = 0; i < CurrentProfile.ObjectStructVector.size(); i++)
-	{
-		if (CurrentProfile.ObjectStructVector[i].ObjectType.Type == L"Mods")
-		{
-			ModsObjectStructIndex = i;
-			continue;
-		}
-		else if (CurrentProfile.ObjectStructVector[i].ObjectType.Type == L"Resource Packs")
-		{
-			ResourcePacksObjectStructIndex = i;
-			continue;
-		}
-		else //Shader Object Struct
-		{
-			ShaderPacksObjectStructIndex = i;
-			continue;
-		}
-	}
-	for (fs::path ModPack : ModPackList)
-	{
-		std::wstring wsModPackFolder = ModPack.parent_path().wstring() + L"\\" + ModPack.stem().wstring();
-		if (!fs::is_directory(ModPack)) // Zip modpacks
-		{
-			if (!fs::exists(wsModPackFolder)) // If it already exists, I assume it's already extracted
-			{
-				CurrentTask = L"Extracting modpack: " + std::wstring(ModPack);
-				fs::create_directory(wsModPackFolder);
-				std::string sModPackFolder = wstring2string(wsModPackFolder);
-				SevenZip.extract(ModPack.string(), sModPackFolder);
-				CurrentTask = L"";
-			}
-		}
-		if (fs::exists(wsModPackFolder + L"\\modrinth.index.json")) //Modrinth modpack
-		{
-			std::ifstream ModpackObjects(wsModPackFolder + L"\\modrinth.index.json");
-			json data = json::parse(ModpackObjects);
-			std::string DownloadURL = "";
-			std::wstring Path = L"";
-			std::wstring FullPath = L"";
-			std::wstring Name = L"";
-			std::wstring DownloadTo = L"";
-			for (auto& file : data["files"])
-			{
-				if (file.contains("downloads") && file["downloads"].is_array()) 
-				{
-					for (auto& item : file["downloads"]) 
-					{
-						if (item.is_string()) 
-						{
-							DownloadURL = item.get<std::string>();
-						}
-					}
-				}
-				if (file.contains("path") && file["path"].is_string())
-				{
-					int pos = file.value("path", "").find("/");
-					Path = string2wstring(file.value("path", "").substr(0, pos));
-					Name = string2wstring(file.value("path", "").substr(pos + 1, file.value("path", "").size()));
-					FullPath = string2wstring(file.value("path", ""));
-					std::wstring NeededPath = wsModPackFolder + L"\\overrides\\" + Path;
-					CreateIfNotExists(NeededPath);
-					DownloadTo = NeededPath + L"\\" + Name;
-				}
-				if (DownloadURL != "" && DownloadTo != L"" && !fs::exists(DownloadTo))
-				{
-					std::string MemoryBuffer = "";
-					CurrentTask = L"Downloading file: " + Name;
-					DownloadFile(DownloadURL, DownloadTo, MemoryBuffer);
-					CurrentTask = L"";
-				}
-			}
-			ModpackObjects.close();
-		}
-		for (std::wstring& FileOrFolder : getAllInDirectoryW(wsModPackFolder + L"\\overrides"))
-		{
-			if (fs::is_directory(wsModPackFolder + L"\\overrides\\" + FileOrFolder))
-			{
-				for (std::wstring& CurrentObject : getInDirectoryW(wsModPackFolder + L"\\overrides\\" + FileOrFolder, false))
-				{
-					CurrentTask = L"Copying item: " + FileOrFolder + LR"(\)" + CurrentObject;
-					if (FileOrFolder == L"mods" || FileOrFolder == L"resourcepacks" || FileOrFolder == L"shaderpacks")
-					{
-						ObjectType NewObjectType;
-						NewObjectType.Folder = wsModPackFolder + L"\\overrides\\" + FileOrFolder;
-						NewObjectType.IsEnabled = true;
-						NewObjectType.Type = GetObjectType(FileOrFolder);
-						Object NewObject = GetObjectInfo(CurrentObject, NewObjectType, true);
-						if (FileOrFolder == L"mods")
-						{
-							CurrentProfile.ObjectStructVector[ModsObjectStructIndex].ObjectVector.push_back(NewObject);
-						}
-						else if (FileOrFolder == L"resourcepacks")
-						{
-							CurrentProfile.ObjectStructVector[ResourcePacksObjectStructIndex].ObjectVector.push_back(NewObject);
-						}
-						else //Shader Packs
-						{
-							CurrentProfile.ObjectStructVector[ShaderPacksObjectStructIndex].ObjectVector.push_back(NewObject);
-						}
-					}
-					std::wstring ParentFolder = CurrentProfile.Directory + L"\\" + FileOrFolder;
-					CreateIfNotExists(ParentFolder);
-					fs::copy(wsModPackFolder + L"\\overrides\\" + FileOrFolder + L"\\" + CurrentObject, ParentFolder + L"\\" + CurrentObject, fs::copy_options::skip_existing);
-				}
-			}
-			else
-			{
-				CurrentTask = L"Copying item: " + FileOrFolder;
-				fs::copy(wsModPackFolder + L"\\overrides\\" + FileOrFolder, CurrentProfile.Directory + L"\\" + FileOrFolder);
-			}
-		}
-		CurrentTask = L"";
-	}
-	DisableProfileSelection = false;
-	DisableServerSelection = true;
-	DownloadProgress = 0.0f;
-}
 //I need to declare them globally since ImGui would loop and destroy them otherwise
 std::vector<std::wstring> Unit = { L"MB", L"GB" };
-int UnitSelectedIndex = 2;
+int UnitSelectedIndex = 1;
 std::vector<std::wstring> FabricServerVersions;
 int FabricServerVersionsIndex = 0;
 std::string MemBuffer = "";
@@ -1205,6 +1306,18 @@ void AddServer()
 		CurrentTask = L"";
 	}
 }
+void RewriteFile(std::vector<std::string>& Contents, std::string File)
+{
+	std::ofstream OutFile(File, std::ios::trunc);
+	if (OutFile.is_open())
+	{
+		for (auto& writeline : Contents)
+		{
+			OutFile << writeline << std::endl;
+		}
+		OutFile.close();
+	}
+}
 void InstallServer()
 {
 	CurrentTask = L"Downloading installer versions...";
@@ -1222,15 +1335,46 @@ void InstallServer()
 	CurrentTask = L"Downloading server.jar...";
 	Profile NewServer;
 	std::wstring wsServerName = string2wstring(std::string(ServerName));
-	LoadModdedServerData(NewServer, wsServerName);
+	NewServer.Directory = MinecraftDir + L"\\servers\\" + wsServerName;
+	CreateIfNotExists(NewServer.Directory);
 	DownloadFile("https://meta.fabricmc.net/v2/versions/loader/" + wstring2string(FabricServerVersions[FabricServerVersionsIndex]) +
 		"/" + SelectedLoaderVersion + "/" + MostRecentFabricInstallerVersion + "/server/jar", 
 		NewServer.Directory + L"\\server.jar", MemBuffer);
-	Servers.push_back(NewServer);
 	MemBuffer = "";
-	//I need to execute the server and accept eula here, using handle objects to detect the execution
-	CurrentTask = L"Server successfully installed!";
-
+	std::wstring cmdLine = L"java -jar " + NewServer.Directory + L"\\server.jar";
+	HANDLE ServerHandle = Execute(cmdLine, NewServer.Directory, true, false, false);
+	if (ServerHandle != nullptr)
+	{
+		CurrentTask = L"Installing server...";
+		DWORD exitCode;
+		while (GetExitCodeProcess(ServerHandle, &exitCode))
+		{
+			if (exitCode != STILL_ACTIVE)
+			{
+				break;
+			}
+		}
+		std::vector<std::string> EulaLines = LinesToVector(wstring2string(NewServer.Directory + L"\\eula.txt"));
+		if (!EulaLines.empty())
+		{
+			for (int i = 0; i < EulaLines.size(); i++)
+			{
+				if (EulaLines[i].find("eula=false") != std::string::npos)
+				{
+					EulaLines[i] = "eula=true";
+					break;
+				}
+			}
+		}
+		RewriteFile(EulaLines, wstring2string(NewServer.Directory + L"\\eula.txt"));
+		CIniReader RAMini(wstring2string(NewServer.Directory) + "\\RAM.ini");
+		RAMini.WriteInteger("Server RAM", "MinimumRAM", MinimumRAM);
+		RAMini.WriteInteger("Server RAM", "MaximumRAM", MaximumRAM);
+		RAMini.WriteInteger("Server RAM", "SavedUnit", UnitSelectedIndex);
+		LoadModdedServerData(NewServer, wsServerName);
+		Servers.push_back(NewServer);
+	}
+	CurrentTask = L"";
 }
 void ServerPopup()
 {
@@ -1286,7 +1430,9 @@ void ServerPopup()
 				}
 				if (!ShowRAMError && !AskNamePrompt && !NameAlreadyExists)
 				{
-					InstallServer();
+					std::thread InstallThread (InstallServer);
+					InstallThread.detach();
+					ImGui::CloseCurrentPopup();
 				}
 			}
 			ImGui::SameLine();

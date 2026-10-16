@@ -1,6 +1,7 @@
 #include "..\HeadersAndUtilities\Functions.h"
 #include <thread>
 #include "..\HeadersAndUtilities\Settings.h"
+
 void ProfilesTab()
 {
 	if (CurrentTask != L"")
@@ -16,6 +17,13 @@ void ProfilesTab()
 	{
 		OpenFabricInstaller();
 	}
+	ImGui::SameLine();
+	if (ImGui::Button("Reload profiles"))
+	{
+		std::thread NewThread(ReloadProfiles, std::ref(Profiles), std::ref(ProfileIndex));
+		NewThread.detach();
+		return;
+	}
 	ImGui::Text("Current Profile:");
 	if (!Profiles.empty())
 	{
@@ -25,15 +33,6 @@ void ProfilesTab()
 		}
 		ImGui::SameLine();
 		ProfileCombo(Profiles, 0, ProfileIndex);
-		if (ImGui::Button("Reload profiles"))
-		{
-			std::thread([=]()
-			{
-				ProfileIndex = 0;
-				Profiles.clear();
-				GetProfiles(Profiles);
-			}).detach();
-		}
 		if (ImGui::Button("Remove profile"))
 		{
 			ImGui::OpenPopup("Removeprofile");
@@ -43,28 +42,19 @@ void ProfilesTab()
 			ImGui::Text("Are you sure you want to remove this profile?");
 			if (ImGui::Button("Remove##Profile"))
 			{
-				//Remove profile here
+				RemoveJsonObject(Profiles[ProfileIndex].Id, ProfilesFile);
+				RemoveProfile(Profiles, ProfileIndex);
+				ImGui::CloseCurrentPopup();
+				return;
 			}
+			ImGui::SameLine();
 			if (ImGui::Button("Cancel##Profile"))
 			{
 				ImGui::CloseCurrentPopup();
 			}
+			ImGui::EndPopup();
 		}
-		Profile& CurrentProfile = Profiles[ProfileIndex];
-		ImGui::FileBrowser& ModPackFileBrowser = CurrentProfile.FileBrowserVector.back();
-		if (ImGui::Button("Add Modpacks")) //They're called modpacks but they can include all object types, not just mods
-		{
-			ModPackFileBrowser.Open();
-		}
-		ModPackFileBrowser.Display();
-		if (ModPackFileBrowser.HasSelected())
-		{
-			std::vector<fs::path> ModPackList = ModPackFileBrowser.GetMultiSelected();
-			std::thread NewThread(AddModPacks, std::ref(CurrentProfile), ModPackList);
-			NewThread.detach();
-			ModPackFileBrowser.ClearSelected();
-		}
-		ObjectList(CurrentProfile);
+		ManageObjects(Profiles, ProfileIndex, 0);
 		if (DisableProfileSelection)
 		{
 			ImGui::EndDisabled();
@@ -116,12 +106,9 @@ void ServersTab()
 		ProfileCombo(Servers, 1, ServerIndex);
 		if (ImGui::Button("Reload servers"))
 		{
-			std::thread([=]()
-				{
-					ServerIndex = 0;
-					Servers.clear();
-					GetServers(Servers);
-				}).detach();
+			std::thread NewThread(ReloadProfiles, std::ref(Servers), std::ref(ServerIndex));
+			NewThread.detach();
+			return;
 		}
 		if (ImGui::Button("Remove server"))
 		{
@@ -132,28 +119,18 @@ void ServersTab()
 			ImGui::Text("Are you sure you want to remove this server?");
 			if (ImGui::Button("Remove##Server"))
 			{
-				//Remove profile here
+				RemoveProfile(Servers, ServerIndex);
+				ImGui::CloseCurrentPopup();
+				return;
 			}
+			ImGui::SameLine();
 			if (ImGui::Button("Cancel##Server"))
 			{
 				ImGui::CloseCurrentPopup();
 			}
+			ImGui::EndPopup();
 		}
-		Profile& CurrentServer = Servers[ServerIndex];
-		ImGui::FileBrowser& ModPackFileBrowser = CurrentServer.FileBrowserVector.back();
-		if (ImGui::Button("Add Modpacks##Servers"))
-		{
-			ModPackFileBrowser.Open();
-		}
-		ModPackFileBrowser.Display();
-		if (ModPackFileBrowser.HasSelected())
-		{
-			std::vector<fs::path> ModPackList = ModPackFileBrowser.GetMultiSelected();
-			std::thread NewThread(AddModPacks, std::ref(CurrentServer), ModPackList);
-			NewThread.detach();
-			ModPackFileBrowser.ClearSelected();
-		}
-		ObjectList(CurrentServer);
+		ManageObjects(Servers, ServerIndex, 1);
 		if (DisableServerSelection)
 		{
 			ImGui::EndDisabled();
