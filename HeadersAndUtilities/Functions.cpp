@@ -683,11 +683,11 @@ void ObjectList(Profile& CurrentProfile)
 					ProfileFileBrowserVector[POSIndex].ClearSelected();
 				}
 				ImGui::SameLine();
-				if (ImGui::Button(("Remove all " + wstring2string(ObjectType) + "##" + std::to_string(POSIndex)).c_str()))
+				if (ImGui::Button(("Remove all## " + wstring2string(ObjectType) + "Popup" + std::to_string(POSIndex)).c_str()))
 				{
-					ImGui::OpenPopup(("Remove all " + wstring2string(ObjectType) + "##Popup" + std::to_string(POSIndex)).c_str());
+					ImGui::OpenPopup(("Remove all## " + wstring2string(ObjectType) + "Popup" + std::to_string(POSIndex)).c_str());
 				}
-				if (ImGui::BeginPopup(("Remove all " + wstring2string(ObjectType) + "##Popup" + std::to_string(POSIndex)).c_str()))
+				if (ImGui::BeginPopup(("Remove all## " + wstring2string(ObjectType) + "Popup" + std::to_string(POSIndex)).c_str()))
 				{
 					ImGui::Text(("Are you sure you want to remove all " + wstring2string(ObjectType) + "?").c_str());
 					if (ImGui::Button(("Remove all##Confirm" + wstring2string(ObjectType) + std::to_string(POSIndex)).c_str()))
@@ -760,6 +760,7 @@ void ObjectList(Profile& CurrentProfile)
 									if (ImGui::Button(("Remove##Confirm" + wstring2string(ObjectType) + std::to_string(row)).c_str()))
 									{
 										fs::remove(CurrentProfile.Directory + L"\\" + ObjectType + L"\\" + ProfileObjectStructVector[POSIndex].ObjectVector[row].FileName);
+										fs::remove(CurrentProfile.Directory + L"\\" + ObjectType + L"\\Metadata\\" + ProfileObjectStructVector[POSIndex].ObjectVector[row].FileName + L".json");
 										ProfileObjectStructVector[POSIndex].ObjectVector.erase(ProfileObjectStructVector[POSIndex].ObjectVector.begin() + row);
 										ImGui::CloseCurrentPopup();
 									}

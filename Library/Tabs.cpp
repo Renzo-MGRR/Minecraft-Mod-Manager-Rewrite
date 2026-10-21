@@ -80,7 +80,6 @@ void SettingsTab()
 }
 void ServersTab()
 {
-	std::vector<std::wstring> FabricServerVersions;
 	if (ImGui::Button("Add Server"))
 	{
 		std::thread NewThread(AddServer);
