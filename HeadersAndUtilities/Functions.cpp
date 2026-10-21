@@ -695,7 +695,7 @@ void ObjectList(Profile& CurrentProfile)
 						for (int t = 0; t < ProfileObjectStructVector[POSIndex].ObjectVector.size(); t++)
 						{
 							fs::remove(CurrentProfile.Directory + L"\\" + ObjectType + L"\\" + ProfileObjectStructVector[POSIndex].ObjectVector[t].FileName);
-							fs::remove(CurrentProfile.Directory + L"\\" + ObjectType + L"\\Metadata\\" + fs::path(ProfileObjectStructVector[POSIndex].ObjectVector[t].FileName).stem().wstring() + L".json");
+							fs::remove(CurrentProfile.Directory + L"\\" + ObjectType + L"\\Metadata\\" + ProfileObjectStructVector[POSIndex].ObjectVector[t].FileName + L".json");;
 							ProfileObjectStructVector[POSIndex].ObjectVector.erase(ProfileObjectStructVector[POSIndex].ObjectVector.begin() + t);
 							t--;
 						}
