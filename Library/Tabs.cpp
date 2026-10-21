@@ -15,7 +15,8 @@ void ProfilesTab()
 	}
 	if (ImGui::Button("Open Fabric Installer"))
 	{
-		OpenFabricInstaller();
+		std::thread NewThread(OpenFabricInstaller);
+		NewThread.detach();
 	}
 	ImGui::SameLine();
 	if (ImGui::Button("Reload profiles"))

@@ -1217,44 +1217,46 @@ std::vector<std::string> GetFabricInstallerVersions(std::string Filecontents)
 
 void OpenFabricInstaller()
 {
-	std::thread([=]()
+	std::string FileInMemory = "";
+	DownloadFile("https://maven.fabricmc.net/net/fabricmc/fabric-installer/", L"", FileInMemory);
+	std::vector<std::string> FabricInstallerVersions = GetFabricInstallerVersions(FileInMemory);
+	FileInMemory = ""; //We clean the file in memory just in case
+	if (!FabricInstallerVersions.empty())
+	{
+		std::string VersionToInstall = extractBetweenDelimiters(FabricInstallerVersions[FabricInstallerVersions.size() - 1], R"(")", R"(/)");
+		std::string FabricInstaller = "fabric-installer-" + VersionToInstall + ".exe";
+		std::string URL = "https://maven.fabricmc.net/net/fabricmc/fabric-installer/" + VersionToInstall + "/fabric-installer-" + VersionToInstall + ".exe";
+		if (fs::exists(FabricInstaller))
 		{
-			std::string FileInMemory = "";
-			DownloadFile("https://maven.fabricmc.net/net/fabricmc/fabric-installer/", L"", FileInMemory);
-			std::vector<std::string> FabricInstallerVersions = GetFabricInstallerVersions(FileInMemory);
-			FileInMemory = ""; //We clean the file in memory just in case
-			if (!FabricInstallerVersions.empty())
+			std::vector<std::wstring> DirFiles = getInDirectoryW(GetCurrentFolder(), false);
+			for (std::wstring File : DirFiles)
 			{
-				std::string VersionToInstall = extractBetweenDelimiters(FabricInstallerVersions[FabricInstallerVersions.size() - 1], R"(")", R"(/)");
-				std::string FabricInstaller = "fabric-installer-" + VersionToInstall + ".exe";
-				std::string URL = "https://maven.fabricmc.net/net/fabricmc/fabric-installer/" + VersionToInstall + "/fabric-installer-" + VersionToInstall + ".exe";
-				if (fs::exists(FabricInstaller))
+				if (File.find(L"fabric-installer") != std::wstring::npos && File != string2wstring(FabricInstaller)) //Check for old fabric installers
 				{
-					std::vector<std::wstring> DirFiles = getInDirectoryW(GetCurrentFolder(), false);
-					for (std::wstring File : DirFiles)
-					{
-						if (File.find(L"fabric-installer") != std::wstring::npos && File != string2wstring(FabricInstaller)) //Check for old fabric installers
-						{
-							fs::remove(File);
-							DownloadFile(URL, string2wstring(FabricInstaller), FileInMemory);
-						}
-						if (File == string2wstring(FabricInstaller))
-						{
-							if (fs::is_empty(FabricInstaller))
-							{
-								fs::remove(File);
-								DownloadFile(URL, string2wstring(FabricInstaller), FileInMemory);
-							}
-						}
-					}
-				}
-				else
-				{
+					fs::remove(File);
+					CurrentTask = L"Downloading Fabric Installer...";
 					DownloadFile(URL, string2wstring(FabricInstaller), FileInMemory);
 				}
-				Execute(string2wstring(FabricInstaller), GetCurrentFolder(), false, false, true);
+				if (File == string2wstring(FabricInstaller))
+				{
+					if (fs::is_empty(FabricInstaller))
+					{
+						fs::remove(File);
+						CurrentTask = L"Downloading Fabric Installer...";
+						DownloadFile(URL, string2wstring(FabricInstaller), FileInMemory);
+					}
+				}
 			}
-		}).detach();
+		}
+		else
+		{
+			CurrentTask = L"Downloading Fabric Installer...";
+			DownloadFile(URL, string2wstring(FabricInstaller), FileInMemory);
+		}
+		CurrentTask = L"";
+		DownloadProgress = 0.0f;
+		Execute(string2wstring(FabricInstaller), GetCurrentFolder(), false, false, true);
+	}
 }
 //I need to declare them globally since ImGui would loop and destroy them otherwise
 std::vector<std::wstring> Unit = { L"MB", L"GB" };
