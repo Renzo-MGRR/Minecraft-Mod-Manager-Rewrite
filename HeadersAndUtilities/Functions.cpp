@@ -658,6 +658,21 @@ void MoveObjectByState(ObjectStruct& ObjectStruct, int ObjectIndex)
 	}
 }
 
+json SearchObjects(std::wstring& ObjectType, std::wstring& Version)
+{
+	//Request Example: https://api.modrinth.com/v2/search?facets=[["project_type:mod"],["versions:1.16.5"]]
+	std::string Request = "";
+	std::string Projects = "";
+	if (ObjectType == L"Mods")
+	{
+		Request = "https://api.modrinth.com/v2/search?facets=%5B%5B%22project_type:mod%22%5D,%5B%22categories:fabric%22%5D,%5B%22versions:" 
+			+ wstring2string(Version) + "%22%5D%5D";
+		DownloadFile(Request, L"", Projects);
+	}
+	return json::parse(Projects);
+}
+
+std::vector<Project> ModrinthProjects;
 void ObjectList(Profile& CurrentProfile)
 {
 	std::vector<ObjectStruct>& ProfileObjectStructVector = CurrentProfile.ObjectStructVector;
@@ -673,6 +688,23 @@ void ObjectList(Profile& CurrentProfile)
 				if (ImGui::Button(("Add " + wstring2string(ObjectType) + "##" + std::to_string(POSIndex)).c_str()))
 				{
 					ProfileFileBrowserVector[POSIndex].Open();
+				}
+				if (ImGui::Button(("Add " + wstring2string(ObjectType) + "(Modrinth) ##" + std::to_string(POSIndex)).c_str()))
+				{
+					json Objects = SearchObjects(ObjectType, CurrentProfile.Version);
+					for (auto& item : Objects["hits"])
+					{
+						Project CurrentProject;
+						CurrentProject.ProjectID = item.value("project_id", "");
+						CurrentProject.Description = item.value("description", "");
+						CurrentProject.Title = item.value("title", "");
+						std::string Request = "https://api.modrinth.com/v2/project/" +
+							CurrentProject.ProjectID + "/version?loaders=%5B%22fabric%22%5D&game_versions=%5B%22" +
+							wstring2string(CurrentProfile.Version) + "%22%5D";
+						std::string VersionData = "";
+						DownloadFile(Request, L"", VersionData);
+						json VersionJson = json::parse(VersionData);
+					}
 				}
 				ProfileFileBrowserVector[POSIndex].Display();
 				if (ProfileFileBrowserVector[POSIndex].HasSelected())

@@ -26,6 +26,11 @@ struct Object {
 	std::wstring Description;
 	std::wstring Version;
 };
+struct Project {
+	std::string ProjectID;
+	std::string Title;
+	std::string Description;
+};
 extern std::atomic<float> DownloadProgress;
 struct ObjectStruct
 {
