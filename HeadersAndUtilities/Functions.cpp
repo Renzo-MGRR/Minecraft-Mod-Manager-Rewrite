@@ -200,6 +200,25 @@ void Combo(std::vector<std::wstring>& Vector, int id, int& VectorSelectedIndex)
 		ImGui::EndCombo();
 	}
 }
+void Combo(std::vector<Version>& Vector, int id, int& VectorSelectedIndex)
+{
+	if (ImGui::BeginCombo(("##Combo" + std::to_string(id)).c_str(), (Vector[VectorSelectedIndex].VersionNumber).c_str()))
+	{
+		for (int i = 0; i < Vector.size(); ++i)
+		{
+			const bool isSelected = (VectorSelectedIndex == i);
+			if (ImGui::Selectable((Vector[i].VersionNumber).c_str(), isSelected))
+			{
+				VectorSelectedIndex = i;
+			}
+			if (isSelected)
+			{
+				ImGui::SetItemDefaultFocus();
+			}
+		}
+		ImGui::EndCombo();
+	}
+}
 void ProfileCombo(std::vector<Profile> Vector, int id, int &VectorSelectedIndex)
 {
 	if (ImGui::BeginCombo((wstring2string(L"##Combo" + std::to_wstring(id))).c_str(), (wstring2string(Vector[VectorSelectedIndex].NameAndVersion)).c_str()))
@@ -658,21 +677,64 @@ void MoveObjectByState(ObjectStruct& ObjectStruct, int ObjectIndex)
 	}
 }
 
-json SearchObjects(std::wstring& ObjectType, std::wstring& Version)
+void GetProjectsInfo(std::wstring& ObjectType, Profile& CurrentProfile)
 {
+	CurrentTask = L"Getting modrinth projects info...";
 	//Request Example: https://api.modrinth.com/v2/search?facets=[["project_type:mod"],["versions:1.16.5"]]
-	std::string Request = "";
-	std::string Projects = "";
+	std::string ProjectType = "";
 	if (ObjectType == L"Mods")
 	{
-		Request = "https://api.modrinth.com/v2/search?facets=%5B%5B%22project_type:mod%22%5D,%5B%22categories:fabric%22%5D,%5B%22versions:" 
-			+ wstring2string(Version) + "%22%5D%5D";
-		DownloadFile(Request, L"", Projects);
+		ProjectType = "mod";
 	}
-	return json::parse(Projects);
+	else if (ObjectType == L"Resource Packs")
+	{
+		ProjectType = "resourcepack";
+	}
+	else if (ObjectType == L"Shaders")
+	{
+		ProjectType = "shader";
+	}
+	else //Modpacks
+	{
+		ProjectType = "modpack";
+	}
+	std::string Request = "https://api.modrinth.com/v2/search?facets=%5B%5B%22project_type:" + 
+		ProjectType + "%22%5D,%5B%22categories:fabric%22%5D,%5B%22versions:" + 
+		wstring2string(CurrentProfile.Version) + "%22%5D%5D";
+	std::string Projects = "";
+	DownloadFile(Request, L"", Projects);
+	json Objects = json::parse(Projects);
+	for (auto& item : Objects["hits"])
+	{
+		Project CurrentProject;
+		CurrentProject.ProjectID = item.value("project_id", "");
+		CurrentProject.Description = item.value("description", "");
+		CurrentProject.Title = item.value("title", "");
+		std::string Request = "https://api.modrinth.com/v2/project/" +
+			CurrentProject.ProjectID + "/version?loaders=%5B%22fabric%22%5D&game_versions=%5B%22" +
+			wstring2string(CurrentProfile.Version) + "%22%5D";
+		std::string VersionData = "";
+		DownloadFile(Request, L"", VersionData);
+		json VersionsJson = json::parse(VersionData);
+		for (auto& CVersion : VersionsJson)
+		{
+			Version CurrentVersion;
+			CurrentVersion.Name = CVersion.value("name", "");
+			CurrentVersion.VersionNumber = CVersion.value("version_number", "");
+			for (auto& file : CVersion["files"]) 
+			{
+				ModrinthFile NewFile;
+				NewFile.URL = file.value("url", "");
+				NewFile.GetInstalled = false;
+				CurrentVersion.MainFile = NewFile;
+				break; // Versions only contain one main file
+			}
+			CurrentProject.Versions.push_back(CurrentVersion);
+		}
+		CurrentProfile.ModrinthProjects.push_back(CurrentProject);
+		CurrentTask = L"";
+	}
 }
-
-std::vector<Project> ModrinthProjects;
 void ObjectList(Profile& CurrentProfile)
 {
 	std::vector<ObjectStruct>& ProfileObjectStructVector = CurrentProfile.ObjectStructVector;
@@ -689,22 +751,41 @@ void ObjectList(Profile& CurrentProfile)
 				{
 					ProfileFileBrowserVector[POSIndex].Open();
 				}
-				if (ImGui::Button(("Add " + wstring2string(ObjectType) + "(Modrinth) ##" + std::to_string(POSIndex)).c_str()))
+				if (ImGui::Button(("Add " + wstring2string(ObjectType) + " (Modrinth)##" + std::to_string(POSIndex)).c_str()))
 				{
-					json Objects = SearchObjects(ObjectType, CurrentProfile.Version);
-					for (auto& item : Objects["hits"])
+					CurrentProfile.ModrinthProjects.clear();
+					std::thread ProjectsThread(GetProjectsInfo, std::ref(ObjectType), std::ref(CurrentProfile));
+					ProjectsThread.detach();
+					int MonX = GetSystemMetrics(SM_CXSCREEN);
+					int MonY = GetSystemMetrics(SM_CYSCREEN);
+					ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+					ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+					ImGui::SetNextWindowSize(ImVec2(750, 750));
+					ImGui::OpenPopup("Projects");
+				}
+				if (ImGui::BeginPopupModal("Projects"))
+				{
+					for (int p = 0; p < CurrentProfile.ModrinthProjects.size(); p++)
 					{
-						Project CurrentProject;
-						CurrentProject.ProjectID = item.value("project_id", "");
-						CurrentProject.Description = item.value("description", "");
-						CurrentProject.Title = item.value("title", "");
-						std::string Request = "https://api.modrinth.com/v2/project/" +
-							CurrentProject.ProjectID + "/version?loaders=%5B%22fabric%22%5D&game_versions=%5B%22" +
-							wstring2string(CurrentProfile.Version) + "%22%5D";
-						std::string VersionData = "";
-						DownloadFile(Request, L"", VersionData);
-						json VersionJson = json::parse(VersionData);
+						ImGui::Text("%s", CurrentProfile.ModrinthProjects[p].Title.c_str());
+						ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + 500);
+						ImGui::TextWrapped("%s", CurrentProfile.ModrinthProjects[p].Description.c_str());
+						ImGui::PopTextWrapPos();
+						ImGui::SetNextItemWidth(300);
+						ImGui::Checkbox(("##GetInstalled" + std::to_string(p)).c_str(), 
+							&CurrentProfile.ModrinthProjects[p].Versions[CurrentProfile.ModrinthProjects[p].SelectedVersion].MainFile.GetInstalled);
+						Combo(CurrentProfile.ModrinthProjects[p].Versions, 10 + p, CurrentProfile.ModrinthProjects[p].SelectedVersion);
+						if (p != CurrentProfile.ModrinthProjects.size() - 1)
+						{
+							ImGui::Separator();
+						}
 					}
+					if (ImGui::Button("Cancel##Projects"))
+					{
+						CurrentProfile.ModrinthProjects.clear();
+						ImGui::CloseCurrentPopup();
+					}
+					ImGui::EndPopup();
 				}
 				ProfileFileBrowserVector[POSIndex].Display();
 				if (ProfileFileBrowserVector[POSIndex].HasSelected())
@@ -1291,7 +1372,7 @@ void OpenFabricInstaller()
 		Execute(string2wstring(FabricInstaller), GetCurrentFolder(), false, false, true);
 	}
 }
-//I need to declare them globally since ImGui would loop and destroy them otherwise
+
 std::vector<std::wstring> Unit = { L"MB", L"GB" };
 int UnitSelectedIndex = 1;
 std::vector<std::wstring> FabricServerVersions;

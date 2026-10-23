@@ -26,10 +26,23 @@ struct Object {
 	std::wstring Description;
 	std::wstring Version;
 };
+struct ModrinthFile {
+	std::string URL;
+	bool GetInstalled;
+};
+struct Version {
+	std::string Name;
+	std::string VersionNumber;
+	ModrinthFile MainFile;
+};
 struct Project {
 	std::string ProjectID;
 	std::string Title;
 	std::string Description;
+	std::string Icon;
+	json VersionsJson;
+	int SelectedVersion;
+	std::vector<Version> Versions;
 };
 extern std::atomic<float> DownloadProgress;
 struct ObjectStruct
@@ -49,6 +62,7 @@ struct Profile {
 	std::vector<ObjectStruct> ObjectStructVector; //We store all object data into a vector of object structs
 	std::chrono::system_clock::time_point Date;
 	std::vector<ImGui::FileBrowser> FileBrowserVector;
+	std::vector<Project> ModrinthProjects;
 };
 extern std::vector<Profile> Profiles;
 extern std::vector<Profile> Servers;
