@@ -26,23 +26,20 @@ struct Object {
 	std::wstring Description;
 	std::wstring Version;
 };
-struct ModrinthFile {
-	std::string URL;
-	bool GetInstalled;
-};
 struct Version {
 	std::string Name;
 	std::string VersionNumber;
-	ModrinthFile MainFile;
+	std::string FileURL;
 };
 struct Project {
 	std::string ProjectID;
 	std::string Title;
 	std::string Description;
 	std::string Icon;
-	json VersionsJson;
+	std::string VersionsLink;
 	int SelectedVersion;
 	std::vector<Version> Versions;
+	bool GetInstalled;
 };
 extern std::atomic<float> DownloadProgress;
 struct ObjectStruct

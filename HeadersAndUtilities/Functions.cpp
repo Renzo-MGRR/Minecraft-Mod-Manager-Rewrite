@@ -677,31 +677,53 @@ void MoveObjectByState(ObjectStruct& ObjectStruct, int ObjectIndex)
 	}
 }
 
+void GetVersionsInfo(Project& CurrentProject)
+{
+	std::string VersionData = "";
+	DownloadFile(CurrentProject.VersionsLink, L"", VersionData);
+	json VersionsJson = json::parse(VersionData);
+	for (auto& CVersion : VersionsJson)
+	{
+		Version CurrentVersion;
+		CurrentVersion.Name = CVersion.value("name", "");
+		CurrentVersion.VersionNumber = CVersion.value("version_number", "");
+		for (auto& file : CVersion["files"])
+		{
+			CurrentVersion.FileURL = file.value("url", "");
+			break; // Versions only contain one main file
+		}
+		CurrentProject.Versions.push_back(CurrentVersion);
+	}
+}
+
 void GetProjectsInfo(std::wstring& ObjectType, Profile& CurrentProfile)
 {
 	CurrentTask = L"Getting modrinth projects info...";
 	//Request Example: https://api.modrinth.com/v2/search?facets=[["project_type:mod"],["versions:1.16.5"]]
-	std::string ProjectType = "";
+	std::string Request = "";
 	if (ObjectType == L"Mods")
 	{
-		ProjectType = "mod";
+		Request = "https://api.modrinth.com/v2/search?facets=%5B%5B%22project_type:mod%22%5D,%5B%22categories:fabric%22%5D,%5B%22versions:" +
+			wstring2string(CurrentProfile.Version) + "%22%5D%5D";
 	}
 	else if (ObjectType == L"Resource Packs")
 	{
-		ProjectType = "resourcepack";
+		Request = "https://api.modrinth.com/v2/search?facets=%5B%5B%22project_type:resourcepack%22%5D,%5B%22versions:" +
+			wstring2string(CurrentProfile.Version) + "%22%5D%5D";
 	}
 	else if (ObjectType == L"Shaders")
 	{
-		ProjectType = "shader";
+		Request = "https://api.modrinth.com/v2/search?facets=%5B%5B%22project_type:shader%22%5D,%5B%22versions:" +
+			wstring2string(CurrentProfile.Version) + "%22%5D%5D";
 	}
 	else //Modpacks
 	{
-		ProjectType = "modpack";
+		Request = "https://api.modrinth.com/v2/search?facets=%5B%5B%22project_type:modpack%22%5D,%5B%22versions:" +
+			wstring2string(CurrentProfile.Version) + "%22%5D%5D";
 	}
-	std::string Request = "https://api.modrinth.com/v2/search?facets=%5B%5B%22project_type:" + 
-		ProjectType + "%22%5D,%5B%22categories:fabric%22%5D,%5B%22versions:" + 
-		wstring2string(CurrentProfile.Version) + "%22%5D%5D";
+	
 	std::string Projects = "";
+	std::string VersionsLink = "";
 	DownloadFile(Request, L"", Projects);
 	json Objects = json::parse(Projects);
 	for (auto& item : Objects["hits"])
@@ -710,27 +732,20 @@ void GetProjectsInfo(std::wstring& ObjectType, Profile& CurrentProfile)
 		CurrentProject.ProjectID = item.value("project_id", "");
 		CurrentProject.Description = item.value("description", "");
 		CurrentProject.Title = item.value("title", "");
-		std::string Request = "https://api.modrinth.com/v2/project/" +
-			CurrentProject.ProjectID + "/version?loaders=%5B%22fabric%22%5D&game_versions=%5B%22" +
-			wstring2string(CurrentProfile.Version) + "%22%5D";
-		std::string VersionData = "";
-		DownloadFile(Request, L"", VersionData);
-		json VersionsJson = json::parse(VersionData);
-		for (auto& CVersion : VersionsJson)
+		if (ObjectType == L"Mods")
 		{
-			Version CurrentVersion;
-			CurrentVersion.Name = CVersion.value("name", "");
-			CurrentVersion.VersionNumber = CVersion.value("version_number", "");
-			for (auto& file : CVersion["files"]) 
-			{
-				ModrinthFile NewFile;
-				NewFile.URL = file.value("url", "");
-				NewFile.GetInstalled = false;
-				CurrentVersion.MainFile = NewFile;
-				break; // Versions only contain one main file
-			}
-			CurrentProject.Versions.push_back(CurrentVersion);
+			VersionsLink = "https://api.modrinth.com/v2/project/" +
+				CurrentProject.ProjectID + "/version?loaders=%5B%22fabric%22%5D&game_versions=%5B%22" +
+				wstring2string(CurrentProfile.Version) + "%22%5D";
 		}
+		else
+		{
+			VersionsLink = "https://api.modrinth.com/v2/project/" +
+				CurrentProject.ProjectID + "/version";
+		}
+		CurrentProject.VersionsLink = VersionsLink;
+		CurrentProject.GetInstalled = false;
+		CurrentProject.SelectedVersion = 0;
 		CurrentProfile.ModrinthProjects.push_back(CurrentProject);
 		CurrentTask = L"";
 	}
@@ -739,7 +754,6 @@ void ObjectList(Profile& CurrentProfile)
 {
 	std::vector<ObjectStruct>& ProfileObjectStructVector = CurrentProfile.ObjectStructVector;
 	std::vector<ImGui::FileBrowser>& ProfileFileBrowserVector = CurrentProfile.FileBrowserVector;
-
 	for (int POSIndex = 0; POSIndex < ProfileObjectStructVector.size(); POSIndex++) //It should repeat only 3 times since there are only 3 objects but still
 	{
 		std::wstring& ObjectType = ProfileObjectStructVector[POSIndex].ObjectType.Type;
@@ -756,15 +770,14 @@ void ObjectList(Profile& CurrentProfile)
 					CurrentProfile.ModrinthProjects.clear();
 					std::thread ProjectsThread(GetProjectsInfo, std::ref(ObjectType), std::ref(CurrentProfile));
 					ProjectsThread.detach();
-					int MonX = GetSystemMetrics(SM_CXSCREEN);
-					int MonY = GetSystemMetrics(SM_CYSCREEN);
-					ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-					ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-					ImGui::SetNextWindowSize(ImVec2(750, 750));
-					ImGui::OpenPopup("Projects");
+					const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+					ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 650, main_viewport->WorkPos.y + 20), ImGuiCond_FirstUseEver);
+					ImGui::SetNextWindowSize(ImVec2(550, 680), ImGuiCond_FirstUseEver);
+					ImGui::OpenPopup(("Projects##" + std::to_string(POSIndex)).c_str());
 				}
-				if (ImGui::BeginPopupModal("Projects"))
+				if (ImGui::BeginPopupModal(("Projects##" + std::to_string(POSIndex)).c_str(), NULL, ImGuiCond_FirstUseEver))
 				{
+					ImGui::BeginChild(("ProjectsInfo" + std::to_string(POSIndex)).c_str(), ImVec2(0, -ImGui::GetFrameHeightWithSpacing()));
 					for (int p = 0; p < CurrentProfile.ModrinthProjects.size(); p++)
 					{
 						ImGui::Text("%s", CurrentProfile.ModrinthProjects[p].Title.c_str());
@@ -772,15 +785,29 @@ void ObjectList(Profile& CurrentProfile)
 						ImGui::TextWrapped("%s", CurrentProfile.ModrinthProjects[p].Description.c_str());
 						ImGui::PopTextWrapPos();
 						ImGui::SetNextItemWidth(300);
-						ImGui::Checkbox(("##GetInstalled" + std::to_string(p)).c_str(), 
-							&CurrentProfile.ModrinthProjects[p].Versions[CurrentProfile.ModrinthProjects[p].SelectedVersion].MainFile.GetInstalled);
-						Combo(CurrentProfile.ModrinthProjects[p].Versions, 10 + p, CurrentProfile.ModrinthProjects[p].SelectedVersion);
+						ImGui::Checkbox(("##GetInstalled" + std::to_string(POSIndex) + std::to_string(p)).c_str(),
+							&CurrentProfile.ModrinthProjects[p].GetInstalled);
+						if (CurrentProfile.ModrinthProjects[p].GetInstalled)
+						{
+							ImGui::SameLine();
+							if (CurrentProfile.ModrinthProjects[p].Versions.empty())
+							{
+								ImGui::Text("Getting versions...");
+								std::thread VersionsThread(GetVersionsInfo, std::ref(CurrentProfile.ModrinthProjects[p]));
+								VersionsThread.detach(); //I need to make it not launch multiple times
+							}
+							else
+							{
+								Combo(CurrentProfile.ModrinthProjects[p].Versions, 10 + POSIndex + p, CurrentProfile.ModrinthProjects[p].SelectedVersion);
+							}
+						}
 						if (p != CurrentProfile.ModrinthProjects.size() - 1)
 						{
 							ImGui::Separator();
 						}
 					}
-					if (ImGui::Button("Cancel##Projects"))
+					ImGui::EndChild();
+					if (ImGui::Button(("Cancel##Projects" + std::to_string(POSIndex)).c_str()))
 					{
 						CurrentProfile.ModrinthProjects.clear();
 						ImGui::CloseCurrentPopup();
@@ -790,7 +817,7 @@ void ObjectList(Profile& CurrentProfile)
 				ProfileFileBrowserVector[POSIndex].Display();
 				if (ProfileFileBrowserVector[POSIndex].HasSelected())
 				{
-					std::vector<std::filesystem::path> Selection = ProfileFileBrowserVector[POSIndex].GetMultiSelected();
+					std::vector<fs::path> Selection = ProfileFileBrowserVector[POSIndex].GetMultiSelected();
 					std::thread NewThread(AddObject, std::ref(CurrentProfile), std::ref(ProfileObjectStructVector), Selection, POSIndex);
 					NewThread.detach();
 					ProfileFileBrowserVector[POSIndex].ClearSelected();
