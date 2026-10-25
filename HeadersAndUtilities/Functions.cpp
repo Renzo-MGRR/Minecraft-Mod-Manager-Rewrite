@@ -785,16 +785,22 @@ void ObjectList(Profile& CurrentProfile)
 						ImGui::TextWrapped("%s", CurrentProfile.ModrinthProjects[p].Description.c_str());
 						ImGui::PopTextWrapPos();
 						ImGui::SetNextItemWidth(300);
-						ImGui::Checkbox(("##GetInstalled" + std::to_string(POSIndex) + std::to_string(p)).c_str(),
-							&CurrentProfile.ModrinthProjects[p].GetInstalled);
+						if (ImGui::Checkbox(("##GetInstalled" + std::to_string(POSIndex) + std::to_string(p)).c_str(),
+							&CurrentProfile.ModrinthProjects[p].GetInstalled))
+						{
+							if (CurrentProfile.ModrinthProjects[p].GetInstalled)
+							{
+								CurrentProfile.ModrinthProjects[p].Versions.clear();
+								std::thread VersionsThread(GetVersionsInfo, std::ref(CurrentProfile.ModrinthProjects[p]));
+								VersionsThread.detach(); //I need to make it not launch multiple times
+							}
+						}
 						if (CurrentProfile.ModrinthProjects[p].GetInstalled)
 						{
 							ImGui::SameLine();
 							if (CurrentProfile.ModrinthProjects[p].Versions.empty())
 							{
 								ImGui::Text("Getting versions...");
-								std::thread VersionsThread(GetVersionsInfo, std::ref(CurrentProfile.ModrinthProjects[p]));
-								VersionsThread.detach(); //I need to make it not launch multiple times
 							}
 							else
 							{
@@ -807,6 +813,10 @@ void ObjectList(Profile& CurrentProfile)
 						}
 					}
 					ImGui::EndChild();
+					if (ImGui::Button(("Install##Projects" + std::to_string(POSIndex)).c_str()))
+					{
+
+					}
 					if (ImGui::Button(("Cancel##Projects" + std::to_string(POSIndex)).c_str()))
 					{
 						CurrentProfile.ModrinthProjects.clear();
