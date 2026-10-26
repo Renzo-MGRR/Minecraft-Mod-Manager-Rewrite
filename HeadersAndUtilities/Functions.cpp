@@ -682,6 +682,7 @@ void GetVersionsInfo(Project& CurrentProject)
 	std::string VersionData = "";
 	DownloadFile(CurrentProject.VersionsLink, L"", VersionData);
 	json VersionsJson = json::parse(VersionData);
+	CurrentProject.VersionsJson = VersionsJson;
 	for (auto& CVersion : VersionsJson)
 	{
 		Version CurrentVersion;
@@ -696,6 +697,49 @@ void GetVersionsInfo(Project& CurrentProject)
 	}
 }
 
+bool CheckInstalled(Project& CurrentProject, std::vector<ObjectStruct>& ObjectStructVector, std::wstring& ObjectType)
+{
+	for (ObjectStruct& CurrentObjectStruct : ObjectStructVector)
+	{
+		if (CurrentObjectStruct.ObjectType.Type != ObjectType)
+		{
+			continue;
+		}
+		for (int i = 0; i < CurrentObjectStruct.ObjectVector.size(); i++)
+		{
+			if (string2wstring(CurrentProject.Title) == CurrentObjectStruct.ObjectVector[i].Name) // I need it to be the slug but first I need to get it
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+Project GetOneProjectInfo(json& item, std::vector<ObjectStruct>& ObjectStructVector, std::wstring& ObjectType, std::wstring& ProfileVersion)
+{
+	std::string VersionsLink = "";
+	Project CurrentProject;
+	CurrentProject.ProjectID = item.value("project_id", "");
+	CurrentProject.Description = item.value("description", "");
+	CurrentProject.Title = item.value("title", "");
+	if (ObjectType == L"Mods")
+	{
+		VersionsLink = "https://api.modrinth.com/v2/project/" +
+			CurrentProject.ProjectID + "/version?loaders=%5B%22fabric%22%5D&game_versions=%5B%22" +
+			wstring2string(ProfileVersion) + "%22%5D";
+	}
+	else
+	{
+		VersionsLink = "https://api.modrinth.com/v2/project/" +
+			CurrentProject.ProjectID + "/version";
+	}
+	CurrentProject.VersionsLink = VersionsLink;
+	CurrentProject.IsAlreadyInstalled = CheckInstalled(CurrentProject, ObjectStructVector, ObjectType);
+	CurrentProject.GetInstalled = false;
+	CurrentProject.SelectedVersion = 0;
+}
+
 void GetProjectsInfo(std::wstring& ObjectType, Profile& CurrentProfile)
 {
 	CurrentTask = L"Getting modrinth projects info...";
@@ -704,17 +748,17 @@ void GetProjectsInfo(std::wstring& ObjectType, Profile& CurrentProfile)
 	if (ObjectType == L"Mods")
 	{
 		Request = "https://api.modrinth.com/v2/search?facets=%5B%5B%22project_type:mod%22%5D,%5B%22categories:fabric%22%5D,%5B%22versions:" +
-			wstring2string(CurrentProfile.Version) + "%22%5D%5D";
+			wstring2string(CurrentProfile.Version) + "%22%5D%5D&limit=100";
 	}
 	else if (ObjectType == L"Resource Packs")
 	{
 		Request = "https://api.modrinth.com/v2/search?facets=%5B%5B%22project_type:resourcepack%22%5D,%5B%22versions:" +
-			wstring2string(CurrentProfile.Version) + "%22%5D%5D";
+			wstring2string(CurrentProfile.Version) + "%22%5D%5D&limit=100";
 	}
 	else if (ObjectType == L"Shaders")
 	{
 		Request = "https://api.modrinth.com/v2/search?facets=%5B%5B%22project_type:shader%22%5D,%5B%22versions:" +
-			wstring2string(CurrentProfile.Version) + "%22%5D%5D";
+			wstring2string(CurrentProfile.Version) + "%22%5D%5D&limit=100";
 	}
 	else //Modpacks
 	{
@@ -723,33 +767,47 @@ void GetProjectsInfo(std::wstring& ObjectType, Profile& CurrentProfile)
 	}
 	
 	std::string Projects = "";
-	std::string VersionsLink = "";
 	DownloadFile(Request, L"", Projects);
 	json Objects = json::parse(Projects);
 	for (auto& item : Objects["hits"])
 	{
-		Project CurrentProject;
-		CurrentProject.ProjectID = item.value("project_id", "");
-		CurrentProject.Description = item.value("description", "");
-		CurrentProject.Title = item.value("title", "");
-		if (ObjectType == L"Mods")
-		{
-			VersionsLink = "https://api.modrinth.com/v2/project/" +
-				CurrentProject.ProjectID + "/version?loaders=%5B%22fabric%22%5D&game_versions=%5B%22" +
-				wstring2string(CurrentProfile.Version) + "%22%5D";
-		}
-		else
-		{
-			VersionsLink = "https://api.modrinth.com/v2/project/" +
-				CurrentProject.ProjectID + "/version";
-		}
-		CurrentProject.VersionsLink = VersionsLink;
-		CurrentProject.GetInstalled = false;
-		CurrentProject.SelectedVersion = 0;
+		Project CurrentProject = GetOneProjectInfo(item, CurrentProfile.ObjectStructVector, ObjectType, CurrentProfile.Version);
 		CurrentProfile.ModrinthProjects.push_back(CurrentProject);
-		CurrentTask = L"";
+	}
+	CurrentTask = L"";
+}
+
+void GetDependencies(Project& CurrentProject, std::vector<Project>& InstallList, std::vector<ObjectStruct>& ObjectStructVector, std::wstring& ObjectType, std::wstring& ProfileVersion)
+{
+	Project ActualProject = CurrentProject;
+	while (!ActualProject.VersionsJson["dependencies"].empty())
+	{
+		for (auto& Dependency : ActualProject.VersionsJson["dependencies"])
+		{
+			std::string ProjectID = Dependency.value("project_id", "");
+			std::string ProjectInfo = "";
+			std::string URL = "https://api.modrinth.com/v2/project/" + ProjectID;
+			DownloadFile(URL, L"", ProjectInfo);
+			json ProjectJson = json::parse(ProjectInfo);
+			Project DependencyProject = GetOneProjectInfo(ProjectJson, ObjectStructVector, ObjectType, ProfileVersion);
+			ActualProject = DependencyProject;
+			InstallList.push_back(DependencyProject);
+		}
 	}
 }
+
+void InstallModrinthProjects(Profile& CurrentProfile, std::wstring& ObjectType)
+{
+	for (int i = 0; i < CurrentProfile.ModrinthProjects.size(); i++)
+	{
+		if (CurrentProfile.ModrinthProjects[i].GetInstalled)
+		{
+			CurrentProfile.ModrinthProjectsToInstall.push_back(CurrentProfile.ModrinthProjects[i]);
+			GetDependencies(CurrentProfile.ModrinthProjects[i], CurrentProfile.ModrinthProjectsToInstall, CurrentProfile.ObjectStructVector, ObjectType, CurrentProfile.Version);
+		}
+	}
+}
+
 void ObjectList(Profile& CurrentProfile)
 {
 	std::vector<ObjectStruct>& ProfileObjectStructVector = CurrentProfile.ObjectStructVector;
@@ -815,8 +873,9 @@ void ObjectList(Profile& CurrentProfile)
 					ImGui::EndChild();
 					if (ImGui::Button(("Install##Projects" + std::to_string(POSIndex)).c_str()))
 					{
-
+						//InstallModrinthProjects(CurrentProfile, ObjectType);
 					}
+					ImGui::SameLine();
 					if (ImGui::Button(("Cancel##Projects" + std::to_string(POSIndex)).c_str()))
 					{
 						CurrentProfile.ModrinthProjects.clear();
@@ -1259,6 +1318,7 @@ void LoadModdedProfileData(Profile& CurrentProfile, json& ProfileJson, std::stri
 	CurrentProfile.ObjectStructVector = GetObjectStructVector(CurrentProfile);
 	CreateProfileFolders(CurrentProfile);
 	CurrentProfile.FileBrowserVector = GetFileBrowserVector(CurrentProfile);
+	CurrentProfile.SearchOffset = 0;
 }
 
 std::vector<std::string> LinesToVector(std::string File)
@@ -1307,6 +1367,7 @@ void LoadModdedServerData(Profile& CurrentServer, std::wstring& ServerName)
 	CurrentServer.Version = GetServerVersion(CurrentServer);
 	CurrentServer.NameAndVersion = CombineNameAndVersion(CurrentServer);
 	CurrentServer.ObjectStructVector = GetObjectStructVector(CurrentServer);
+	CurrentServer.SearchOffset = 0;
 	CreateIfNotExists(CurrentServer.Directory);
 	CreateProfileFolders(CurrentServer);
 	CurrentServer.FileBrowserVector = GetFileBrowserVector(CurrentServer);
@@ -1459,6 +1520,7 @@ void AddServer()
 		CurrentTask = L"";
 	}
 }
+
 void RewriteFile(std::vector<std::string>& Contents, std::string File)
 {
 	std::ofstream OutFile(File, std::ios::trunc);
@@ -1471,6 +1533,7 @@ void RewriteFile(std::vector<std::string>& Contents, std::string File)
 		OutFile.close();
 	}
 }
+
 void InstallServer()
 {
 	CurrentTask = L"Downloading installer versions...";
@@ -1529,6 +1592,7 @@ void InstallServer()
 	}
 	CurrentTask = L"";
 }
+
 void ServerPopup()
 {
 	if (ImGui::BeginPopup("##ServerInstallPopup"))

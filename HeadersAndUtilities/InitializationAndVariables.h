@@ -37,9 +37,11 @@ struct Project {
 	std::string Description;
 	std::string Icon;
 	std::string VersionsLink;
+	json VersionsJson;
 	int SelectedVersion;
 	std::vector<Version> Versions;
 	bool GetInstalled;
+	bool IsAlreadyInstalled;
 };
 extern std::atomic<float> DownloadProgress;
 struct ObjectStruct
@@ -60,6 +62,8 @@ struct Profile {
 	std::chrono::system_clock::time_point Date;
 	std::vector<ImGui::FileBrowser> FileBrowserVector;
 	std::vector<Project> ModrinthProjects;
+	std::vector<Project> ModrinthProjectsToInstall;
+	int SearchOffset;
 };
 extern std::vector<Profile> Profiles;
 extern std::vector<Profile> Servers;
