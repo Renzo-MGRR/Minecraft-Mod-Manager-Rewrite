@@ -27,27 +27,31 @@ struct Object {
 	std::wstring Version;
 };
 struct Version {
+	std::string Id;
 	std::string Name;
 	std::string VersionNumber;
 	std::string FileURL;
+	std::vector<std::string> GameVersions;
 };
 struct Project {
 	std::string ProjectID;
 	std::string Title;
-	std::string Description;
+	std::wstring Description;
 	std::string Icon;
 	std::string VersionsLink;
 	json VersionsJson;
-	int SelectedVersion;
+	int SelectedVersionIndex;
 	std::vector<Version> Versions;
 	bool GetInstalled;
 	bool IsAlreadyInstalled;
+	bool IsDependency;
 };
 extern std::atomic<float> DownloadProgress;
 struct ObjectStruct
 {
 	std::vector<Object> ObjectVector;
 	ObjectType ObjectType;
+	bool ShowModrinthTab;
 };
 struct Profile {
 	std::string Id;

@@ -169,14 +169,8 @@ void UI::Render()
     cfg.SizePixels = 13 * fScale;
     ImFont* font = IO.Fonts->AddFontDefault(&cfg);
     config.MergeMode = true;
-    static const ImWchar ranges[] = {
-    0x0020, 0x00FF,
-    0x2000, 0x206F,
-    0x2600, 0x26FF,
-    0x2700, 0x27BF,
-    0,
-    };
-    IO.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\seguiemj.ttf", 13 * fScale, &config, ranges);
+    static ImWchar emojiranges[] = { 0x1F300, 0x1F5FF, 0x2600, 0x26FF, 0 };
+    IO.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\seguiemj.ttf", 13 * fScale, &config, emojiranges);
     IO.Fonts->Build();
     ImGui::GetIO().IniFilename = nullptr;
 
