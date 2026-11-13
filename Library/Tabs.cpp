@@ -55,6 +55,52 @@ void ProfilesTab()
 			}
 			ImGui::EndPopup();
 		}
+		if (ImGui::Button("Rename profile"))
+		{
+			ImGui::OpenPopup("Renameprofile");
+		}
+		if (ImGui::BeginPopup("Renameprofile"))
+		{
+			static std::string ProfileName = wstring2string(Profiles[ProfileIndex].Name);
+			static bool ShowError = false;
+			if (TextInput(L"New name: ", ProfileName) || ImGui::Button("OK"))
+			{
+				if (ProfileName != "")
+				{
+					ShowError = false;
+					if (ProfileName != wstring2string(Profiles[ProfileIndex].Name))
+					{
+						std::ifstream LauncherProfiles(wstring2string(ProfilesFile));
+						json data = json::parse(LauncherProfiles);
+						LauncherProfiles.close();
+						data["profiles"][Profiles[ProfileIndex].Id]["name"] = ProfileName;
+						data["profiles"][Profiles[ProfileIndex].Id]["gameDir"] = wstring2string(MinecraftDir) + "\\profiles\\" + ProfileName;
+						change_key(data["profiles"], Profiles[ProfileIndex].Id, ProfileName);
+						Profiles[ProfileIndex].Name = string2wstring(ProfileName);
+						Profiles[ProfileIndex].Id = ProfileName;
+						Profiles[ProfileIndex].NameAndVersion = CombineNameAndVersion(Profiles[ProfileIndex]);
+						fs::rename(Profiles[ProfileIndex].Directory, MinecraftDir + L"\\profiles\\" + string2wstring(ProfileName));
+						Profiles[ProfileIndex].Directory = MinecraftDir + L"\\profiles\\" + string2wstring(ProfileName);
+						RewriteProfilesFile(data, ProfilesFile);
+					}
+					ImGui::CloseCurrentPopup();
+				}
+				else
+				{
+					ShowError = true;
+				}
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel##renameprofile"))
+			{
+				ImGui::CloseCurrentPopup();
+			}
+			if (ShowError)
+			{
+				ImGui::Text("The new name can't be empty!");
+			}
+			ImGui::EndPopup();
+		}
 		ManageObjects(Profiles, ProfileIndex, 0);
 		if (DisableProfileSelection)
 		{
@@ -127,6 +173,45 @@ void ServersTab()
 			if (ImGui::Button("Cancel##Server"))
 			{
 				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+		if (ImGui::Button("Rename server"))
+		{
+			ImGui::OpenPopup("Renameserver");
+		}
+		if (ImGui::BeginPopup("Renameserver"))
+		{
+			static std::string ServerName = wstring2string(Servers[ServerIndex].Name);
+			static bool ShowServerError = false;
+			if (TextInput(L"New name: ##Server", ServerName) || ImGui::Button("OK##Server"))
+			{
+				if (ServerName != "")
+				{
+					ShowServerError = false;
+					if (ServerName != wstring2string(Profiles[ProfileIndex].Name))
+					{
+						Servers[ServerIndex].Name = string2wstring(ServerName);
+						Servers[ServerIndex].Id = ServerName;
+						Servers[ServerIndex].NameAndVersion = CombineNameAndVersion(Servers[ServerIndex]);
+						fs::rename(Servers[ServerIndex].Directory, MinecraftDir + L"\\servers\\" + string2wstring(ServerName));
+						Servers[ServerIndex].Directory = MinecraftDir + L"\\servers\\" + string2wstring(ServerName);
+					}
+					ImGui::CloseCurrentPopup();
+				}
+				else
+				{
+					ShowServerError = true;
+				}
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel##renameserver"))
+			{
+				ImGui::CloseCurrentPopup();
+			}
+			if (ShowServerError)
+			{
+				ImGui::Text("The new name can't be empty!");
 			}
 			ImGui::EndPopup();
 		}

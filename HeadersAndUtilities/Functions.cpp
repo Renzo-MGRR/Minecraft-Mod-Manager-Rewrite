@@ -12,6 +12,13 @@
 #include <errno.h>
 namespace fs = std::filesystem;
 
+void change_key(json& object, const std::string& old_key, const std::string& new_key)
+{
+	json::iterator it = object.find(old_key);
+	std::swap(object[new_key], it.value());
+	object.erase(it);
+}
+
 void CreateIfNotExists(std::wstring& Folder)
 {
 	if (!fs::exists(Folder))

@@ -7,6 +7,8 @@
 #include "..\IniReader\IniReader.h"
 #include "Settings.h"
 
+void change_key(json& object, const std::string& old_key, const std::string& new_key);
+
 void RemoveJsonObject(std::string& Id, std::wstring& ProfilesFile);
 
 void RewriteProfilesFile(json& JsonData, std::wstring& ProfilesFile);
