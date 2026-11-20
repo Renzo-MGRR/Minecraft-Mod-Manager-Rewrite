@@ -14,6 +14,7 @@ extern inline bool DisableServerSelection = false;
 extern std::wstring CurrentTask;
 extern bit7z::Bit7zLibrary lib;
 extern bit7z::BitFileExtractor SevenZip;
+extern inline std::vector<std::string> SearchSortBy = { "relevance", "downloads", "follows", "newest", "updated" };
 extern inline std::vector<std::wstring> AllObjectTypes = { L"Mods", L"Resource Packs", L"Shader Packs" };
 extern inline std::wstring wsAllObjectTypes = L"Mods,Resource Packs,Shader Packs";
 namespace fs = std::filesystem;
@@ -52,6 +53,8 @@ struct ObjectStruct
 	std::vector<Object> ObjectVector;
 	ObjectType ObjectType;
 	bool ShowModrinthTab;
+	bool ShowInstallProjectsTab;
+	bool GettingProjects;
 };
 struct Profile {
 	std::string Id;
@@ -67,7 +70,6 @@ struct Profile {
 	std::vector<ImGui::FileBrowser> FileBrowserVector;
 	std::vector<Project> ModrinthProjects;
 	std::vector<Project> ModrinthProjectsToInstall;
-	int SearchOffset;
 };
 extern std::vector<Profile> Profiles;
 extern std::vector<Profile> Servers;

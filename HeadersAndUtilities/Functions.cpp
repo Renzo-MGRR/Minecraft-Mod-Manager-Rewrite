@@ -207,6 +207,29 @@ void Combo(std::vector<std::wstring>& Vector, int id, int& VectorSelectedIndex)
 		ImGui::EndCombo();
 	}
 }
+bool Combo(std::vector<std::string>& Vector, std::string id, int& VectorSelectedIndex)
+{
+	bool SelectionChanged = false;
+	if (ImGui::BeginCombo(("##" + id).c_str(), (Vector[VectorSelectedIndex]).c_str()))
+	{
+		for (int i = 0; i < Vector.size(); ++i)
+		{
+			const bool isSelected = (VectorSelectedIndex == i);
+			if (ImGui::Selectable(Vector[i].c_str(), isSelected))
+			{
+				VectorSelectedIndex = i;
+				iniReader.WriteInteger("Settings", "Sort By", i);
+				SelectionChanged = true;
+			}
+			if (isSelected)
+			{
+				ImGui::SetItemDefaultFocus();
+			}
+		}
+		ImGui::EndCombo();
+	}
+	return SelectionChanged;
+}
 void Combo(std::vector<Version>& Vector, int id, int& VectorSelectedIndex)
 {
 	if (ImGui::BeginCombo(("##Combo" + std::to_string(id)).c_str(), (Vector[VectorSelectedIndex].VersionNumber).c_str()))
@@ -246,10 +269,11 @@ void ProfileCombo(std::vector<Profile> Vector, int id, int &VectorSelectedIndex)
 	}
 }
 
-bool TextInput(std::wstring Description, std::string& StringHandler)
+bool TextInput(std::wstring Description, std::string& StringHandler, float Width)
 {
 	ImGui::Text("%s", (wstring2string(Description)).c_str());
 	ImGui::SameLine();
+	ImGui::SetNextItemWidth(Width);
 	if (ImGui::InputText("", &StringHandler, ImGuiInputTextFlags_EnterReturnsTrue))
 	{
 		return true;
@@ -763,30 +787,30 @@ Project GetOneProjectInfo(json& item, std::vector<ObjectStruct>& ObjectStructVec
 	return CurrentProject;
 }
 
-void GetProjectsInfo(std::wstring& ObjectType, Profile& CurrentProfile)
+void GetProjectsInfo(std::wstring& ObjectType, Profile& CurrentProfile, int SearchOffset, std::string query, std::string& index)
 {
 	CurrentTask = L"Getting modrinth projects info...";
 	//Request Example: https://api.modrinth.com/v2/search?facets=[["project_type:mod"],["versions:1.16.5"]]
 	std::string Request = "";
 	if (ObjectType == L"Mods")
 	{
-		Request = "https://api.modrinth.com/v2/search?facets=%5B%5B%22project_type:mod%22%5D,%5B%22categories:fabric%22%5D,%5B%22versions:" +
-			wstring2string(CurrentProfile.Version) + "%22%5D%5D&offset=" + std::to_string(CurrentProfile.SearchOffset) + "&limit=100";
+		Request = "https://api.modrinth.com/v2/search?query=" + query + "&index=" + index + "&facets=%5B%5B%22project_type:mod%22%5D,%5B%22categories:fabric%22%5D,%5B%22versions:" +
+			wstring2string(CurrentProfile.Version) + "%22%5D%5D&offset=" + std::to_string(SearchOffset) + "&limit=100";
 	}
 	else if (ObjectType == L"Resource Packs")
 	{
-		Request = "https://api.modrinth.com/v2/search?facets=%5B%5B%22project_type:resourcepack%22%5D,%5B%22versions:" +
-			wstring2string(CurrentProfile.Version) + "%22%5D%5D&offset=" + std::to_string(CurrentProfile.SearchOffset) + "&limit=100";
+		Request = "https://api.modrinth.com/v2/search?query=" + query + "&index=" + index + "&facets=%5B%5B%22project_type:resourcepack%22%5D,%5B%22versions:" +
+			wstring2string(CurrentProfile.Version) + "%22%5D%5D&offset=" + std::to_string(SearchOffset) + "&limit=100";
 	}
 	else if (ObjectType == L"Shaders")
 	{
-		Request = "https://api.modrinth.com/v2/search?facets=%5B%5B%22project_type:shader%22%5D,%5B%22versions:" +
-			wstring2string(CurrentProfile.Version) + "%22%5D%5D&offset=" + std::to_string(CurrentProfile.SearchOffset) + "&limit=100";
+		Request = "https://api.modrinth.com/v2/search?query=" + query + "&index=" + index + "&facets=%5B%5B%22project_type:shader%22%5D,%5B%22versions:" +
+			wstring2string(CurrentProfile.Version) + "%22%5D%5D&offset=" + std::to_string(SearchOffset) + "&limit=100";
 	}
 	else //Modpacks
 	{
-		Request = "https://api.modrinth.com/v2/search?facets=%5B%5B%22project_type:modpack%22%5D,%5B%22versions:" +
-			wstring2string(CurrentProfile.Version) + "%22%5D%5D&offset=" + std::to_string(CurrentProfile.SearchOffset) + "&limit=100";
+		Request = "https://api.modrinth.com/v2/search?query=" + query + "&index=" + index + "&facets=%5B%5B%22project_type:modpack%22%5D,%5B%22versions:" +
+			wstring2string(CurrentProfile.Version) + "%22%5D%5D&offset=" + std::to_string(SearchOffset) + "&limit=100";
 	}
 	
 	std::string Projects = "";
@@ -800,9 +824,8 @@ void GetProjectsInfo(std::wstring& ObjectType, Profile& CurrentProfile)
 	CurrentTask = L"";
 }
 
-void GetDependencies(Profile& CurrentProfile, int& Index, std::wstring& ObjectType)
+void GetDependencies(Profile& CurrentProfile, Project& CurrentProject, std::wstring& ObjectType, std::vector<Project>& DependencyList)
 {
-	Project& CurrentProject = CurrentProfile.ModrinthProjects[Index];
 	std::string URLForVersion = "https://api.modrinth.com/v2/project/" + CurrentProject.ProjectID + "/version/" + CurrentProject.Versions[CurrentProject.SelectedVersionIndex].Id;
 	std::string SelectedVersion = "";
 	DownloadFile(URLForVersion, L"", SelectedVersion);
@@ -840,8 +863,9 @@ void GetDependencies(Profile& CurrentProfile, int& Index, std::wstring& ObjectTy
 						}
 					}
 				}
-				push:
-				CurrentProfile.ModrinthProjectsToInstall.push_back(DependencyProject); //I hope dependencies can't have sub dependencies
+			push:
+				DependencyProject.GetInstalled = true;
+				DependencyList.push_back(DependencyProject);
 			}
 		}
 	}
@@ -849,18 +873,19 @@ void GetDependencies(Profile& CurrentProfile, int& Index, std::wstring& ObjectTy
 
 void GetInstallList(Profile& CurrentProfile, std::wstring& ObjectType)
 {
+	CurrentTask = L"Getting install list...";
 	for (int i = 0; i < CurrentProfile.ModrinthProjects.size(); i++)
 	{
 		if (CurrentProfile.ModrinthProjects[i].GetInstalled)
 		{
-			GetVersionsInfo(CurrentProfile.ModrinthProjects[i]);
 			CurrentProfile.ModrinthProjectsToInstall.push_back(CurrentProfile.ModrinthProjects[i]);
 			if (ObjectType == L"Mods")
 			{
-				GetDependencies(CurrentProfile, i, ObjectType);
+				GetDependencies(CurrentProfile, CurrentProfile.ModrinthProjects[i], ObjectType, CurrentProfile.ModrinthProjectsToInstall);
 			}
 		}
 	}
+	CurrentTask = L"";
 }
 
 void ObjectList(Profile& CurrentProfile)
@@ -881,55 +906,120 @@ void ObjectList(Profile& CurrentProfile)
 				if (ImGui::Button(("Add " + wstring2string(ObjectType) + " (Modrinth)##" + std::to_string(POSIndex)).c_str()))
 				{
 					CurrentProfile.ModrinthProjects.clear();
-					std::thread ProjectsThread(GetProjectsInfo, std::ref(ObjectType), std::ref(CurrentProfile));
+					std::thread ProjectsThread(GetProjectsInfo, std::ref(ObjectType), std::ref(CurrentProfile), 0, "", std::ref(SearchSortBy[Settings.PreferedSort]));
 					ProjectsThread.detach();
 					const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
 					ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 650, main_viewport->WorkPos.y + 20), ImGuiCond_FirstUseEver);
-					ImGui::SetNextWindowSize(ImVec2(550, 680), ImGuiCond_FirstUseEver);
+					ImGui::SetNextWindowSize(ImVec2(550, 680));
 					ProfileObjectStructVector[POSIndex].ShowModrinthTab = true;
 				}
 				if (ProfileObjectStructVector[POSIndex].ShowModrinthTab)
 				{
-					if (ImGui::Begin(("Projects##" + std::to_string(POSIndex)).c_str(), NULL, ImGuiCond_FirstUseEver))
+					if (ImGui::Begin(("Projects##" + std::to_string(POSIndex)).c_str(), NULL))
 					{
-						ImGui::BeginChild(("ProjectsInfo" + std::to_string(POSIndex)).c_str(), ImVec2(0, -ImGui::GetFrameHeightWithSpacing()));
-						for (int p = 0; p < CurrentProfile.ModrinthProjects.size(); p++)
+						static int SearchOffset = 100;
+						if (!ProfileObjectStructVector[POSIndex].ShowInstallProjectsTab)
 						{
-							ImGui::Text("%s", CurrentProfile.ModrinthProjects[p].Title.c_str());
-							ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + 500);
-							ImGui::TextWrapped("%s", wstring2string(CurrentProfile.ModrinthProjects[p].Description).c_str());
-							ImGui::PopTextWrapPos();
-							ImGui::SetNextItemWidth(300);
-							ImGui::Checkbox(("##GetInstalled" + std::to_string(POSIndex) + std::to_string(p)).c_str(),
-								&CurrentProfile.ModrinthProjects[p].GetInstalled);
-							if (p != CurrentProfile.ModrinthProjects.size() - 1)
+							ImGui::BeginChild(("ProjectsInfo" + std::to_string(POSIndex)).c_str(), ImVec2(0, -ImGui::GetFrameHeightWithSpacing()));
+							static std::string Search = "";
+							if (TextInput(L"Search", Search, 250))
 							{
-								ImGui::Separator();
+								CurrentProfile.ModrinthProjects.clear();
+								std::thread ProjectsThread(GetProjectsInfo, std::ref(ObjectType), std::ref(CurrentProfile), 0, Search, std::ref(SearchSortBy[Settings.PreferedSort]));
+								ProjectsThread.detach();
+							}
+							ImGui::SameLine();
+							ImGui::Text("Sort By:");
+							ImGui::SameLine();
+							ImGui::SetNextItemWidth(100);
+							if (Combo(SearchSortBy, "SortBy", Settings.PreferedSort))
+							{
+								CurrentProfile.ModrinthProjects.clear();
+								std::thread ProjectsThread(GetProjectsInfo, std::ref(ObjectType), std::ref(CurrentProfile), 0, Search, std::ref(SearchSortBy[Settings.PreferedSort]));
+								ProjectsThread.detach();
+							}
+							for (int p = 0; p < CurrentProfile.ModrinthProjects.size(); p++)
+							{
+								ImGui::Text("%s", CurrentProfile.ModrinthProjects[p].Title.c_str());
+								ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + 500);
+								ImGui::TextWrapped("%s", wstring2string(CurrentProfile.ModrinthProjects[p].Description).c_str());
+								ImGui::PopTextWrapPos();
+								ImGui::SetNextItemWidth(300);
+								if (ImGui::Checkbox(("##GetInstalled" + std::to_string(POSIndex) + std::to_string(p)).c_str(),
+									&CurrentProfile.ModrinthProjects[p].GetInstalled))
+								{
+									if (CurrentProfile.ModrinthProjects[p].GetInstalled)
+									{
+										std::thread VersionThread(GetVersionsInfo, std::ref(CurrentProfile.ModrinthProjects[p]));
+										VersionThread.detach();
+									}
+									else
+									{
+										CurrentProfile.ModrinthProjects[p].Versions.clear();
+									}
+								}
+								if (p != CurrentProfile.ModrinthProjects.size() - 1)
+								{
+									ImGui::Separator();
+								}
+							}
+							if (ImGui::Button(("Search more##" + std::to_string(POSIndex)).c_str()))
+							{
+								SearchOffset += 100;
+								std::thread ProjectsThread(GetProjectsInfo, std::ref(ObjectType), std::ref(CurrentProfile), SearchOffset, Search, std::ref(SearchSortBy[Settings.PreferedSort]));
+								ProjectsThread.detach();
+							}
+							ImGui::EndChild();
+							if (ImGui::Button(("Check to install##Projects" + std::to_string(POSIndex)).c_str()))
+							{
+								CurrentProfile.ModrinthProjectsToInstall.clear();
+								std::thread InstallListThread(GetInstallList, std::ref(CurrentProfile), std::ref(ObjectType));
+								InstallListThread.detach();
+								ProfileObjectStructVector[POSIndex].ShowInstallProjectsTab = true;
+							}
+							ImGui::SameLine();
+							if (ImGui::Button(("Cancel##Projects" + std::to_string(POSIndex)).c_str()))
+							{
+								CurrentProfile.ModrinthProjects.clear();
+								CurrentProfile.ModrinthProjectsToInstall.clear();
+								ProfileObjectStructVector[POSIndex].ShowModrinthTab = false;
+								ProfileObjectStructVector[POSIndex].ShowInstallProjectsTab = false;
+								SearchOffset = 100;
 							}
 						}
-						ImGui::EndChild();
-						if (ImGui::Button(("Install##Projects" + std::to_string(POSIndex)).c_str()))
+						else
 						{
-							CurrentProfile.ModrinthProjectsToInstall.clear();
-							std::thread InstallListThread(GetInstallList, std::ref(CurrentProfile), std::ref(ObjectType));
-							InstallListThread.detach();
-							ImGui::OpenPopup(("Install projects##" + std::to_string(POSIndex)).c_str());
-						}
-						ImGui::SameLine();
-						if (ImGui::Button(("Cancel##Projects" + std::to_string(POSIndex)).c_str()))
-						{
-							CurrentProfile.ModrinthProjects.clear();
-							CurrentProfile.ModrinthProjectsToInstall.clear();
-							ProfileObjectStructVector[POSIndex].ShowModrinthTab = false;
-						}
-						if (ImGui::BeginPopup(("Install projects##" + std::to_string(POSIndex)).c_str()))
-						{
+							ImGui::BeginChild(("ProjectsInstallList" + std::to_string(POSIndex)).c_str(), ImVec2(0, -ImGui::GetFrameHeightWithSpacing()));
+							if (CurrentTask != L"")
+							{
+								ImGui::Text("%s", wstring2string(CurrentTask).c_str());
+							}
 							for (int i = 0; i < CurrentProfile.ModrinthProjectsToInstall.size(); i++)
 							{
 								ImGui::Text("%s", CurrentProfile.ModrinthProjectsToInstall[i].Title.c_str());
+								ImGui::Checkbox(("##InstallThisProject" + std::to_string(POSIndex + i)).c_str(), &CurrentProfile.ModrinthProjectsToInstall[i].GetInstalled);
+								ImGui::SameLine();
 								Combo(CurrentProfile.ModrinthProjectsToInstall[i].Versions, 10 + POSIndex + i, CurrentProfile.ModrinthProjects[i].SelectedVersionIndex);
 							}
-							ImGui::EndPopup();
+							ImGui::EndChild();
+							if (CurrentTask == L"Getting install list...")
+							{
+								ImGui::BeginDisabled();
+							}
+							if (ImGui::Button(("Install##ProjectsInstall" + std::to_string(POSIndex)).c_str()))
+							{
+
+							}
+							if (CurrentTask == L"Getting install list...")
+							{
+								ImGui::EndDisabled();
+							}
+							ImGui::SameLine();
+							if (ImGui::Button(("Cancel##ProjectsInstall" + std::to_string(POSIndex)).c_str()))
+							{
+								CurrentProfile.ModrinthProjectsToInstall.clear();
+								ProfileObjectStructVector[POSIndex].ShowInstallProjectsTab = false;
+							}
 						}
 					}
 					ImGui::End();
@@ -1188,6 +1278,8 @@ ObjectStruct GetObjects(ObjectType& ObjectType, Profile& CurrentProfile)
 	CurrentTask = L"Getting " + ObjectType.Type + L" data on " + CurrentProfile.Name + L"...";
 	ObjectStruct Objects;
 	Objects.ShowModrinthTab = false;
+	Objects.ShowInstallProjectsTab = false;
+	Objects.GettingProjects = false;
 	Objects.ObjectType = ObjectType;
 	Objects.ObjectType.Folder = GetObjectFolder(ObjectType, CurrentProfile);
 	std::vector<std::wstring> ObjectFileList;
@@ -1370,7 +1462,6 @@ void LoadModdedProfileData(Profile& CurrentProfile, json& ProfileJson, std::stri
 	CurrentProfile.ObjectStructVector = GetObjectStructVector(CurrentProfile);
 	CreateProfileFolders(CurrentProfile);
 	CurrentProfile.FileBrowserVector = GetFileBrowserVector(CurrentProfile);
-	CurrentProfile.SearchOffset = 0;
 }
 
 std::vector<std::string> LinesToVector(std::string File)
@@ -1419,7 +1510,6 @@ void LoadModdedServerData(Profile& CurrentServer, std::wstring& ServerName)
 	CurrentServer.Version = GetServerVersion(CurrentServer);
 	CurrentServer.NameAndVersion = CombineNameAndVersion(CurrentServer);
 	CurrentServer.ObjectStructVector = GetObjectStructVector(CurrentServer);
-	CurrentServer.SearchOffset = 0;
 	CreateIfNotExists(CurrentServer.Directory);
 	CreateProfileFolders(CurrentServer);
 	CurrentServer.FileBrowserVector = GetFileBrowserVector(CurrentServer);

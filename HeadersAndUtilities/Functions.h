@@ -45,7 +45,7 @@ void DownloadFile(std::string URL, std::wstring File, std::string& MemoryBuffer)
 
 void ProfileCombo(std::vector<Profile> Vector, int id, int &VectorSelectedIndex);
 
-bool TextInput(std::wstring Description, std::string& StringHandler);
+bool TextInput(std::wstring Description, std::string& StringHandler, float Width);
 
 void Execute(const std::wstring& cmdLine, const std::wstring& RunFrom, bool Silent, bool WaitTillFinish);
 

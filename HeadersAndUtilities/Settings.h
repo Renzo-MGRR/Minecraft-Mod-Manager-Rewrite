@@ -9,6 +9,7 @@ struct ObjectType {
 struct IniSettings {
 	bool EnableLog = iniReader.ReadBoolean("Settings", "EnableLog", true);
 	bool ResetLog = iniReader.ReadBoolean("Settings", "ResetLogOnStartup", true);
+	int PreferedSort = iniReader.ReadInteger("Settings", "Sort By", 0);
 	std::wstring LogName = L"Log.log";
 	std::vector<ObjectType> GlobalObjectTypes;
 };

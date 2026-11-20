@@ -63,7 +63,7 @@ void ProfilesTab()
 		{
 			static std::string ProfileName = wstring2string(Profiles[ProfileIndex].Name);
 			static bool ShowError = false;
-			if (TextInput(L"New name: ", ProfileName) || ImGui::Button("OK"))
+			if (TextInput(L"New name: ", ProfileName, 300) || ImGui::Button("OK"))
 			{
 				if (ProfileName != "")
 				{
@@ -184,12 +184,12 @@ void ServersTab()
 		{
 			static std::string ServerName = wstring2string(Servers[ServerIndex].Name);
 			static bool ShowServerError = false;
-			if (TextInput(L"New name: ##Server", ServerName) || ImGui::Button("OK##Server"))
+			if (TextInput(L"New name: ##Server", ServerName, 300) || ImGui::Button("OK##Server"))
 			{
 				if (ServerName != "")
 				{
 					ShowServerError = false;
-					if (ServerName != wstring2string(Profiles[ProfileIndex].Name))
+					if (ServerName != wstring2string(Servers[ServerIndex].Name))
 					{
 						Servers[ServerIndex].Name = string2wstring(ServerName);
 						Servers[ServerIndex].Id = ServerName;
