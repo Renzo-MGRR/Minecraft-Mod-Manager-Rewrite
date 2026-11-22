@@ -678,7 +678,7 @@ void AddModPacks(Profile& CurrentProfile, std::vector<fs::path> ModPackList)
 	DownloadProgress = 0.0f;
 }
 
-void AddObject(Profile& CurrentProfile, std::vector<ObjectStruct>& ProfileObjectStructVector, std::vector<std::filesystem::path> Selection, int POSIndex)
+void AddObjects(Profile& CurrentProfile, std::vector<ObjectStruct>& ProfileObjectStructVector, std::vector<std::filesystem::path> Selection, int POSIndex)
 {
 	for (fs::path& CurrentFile : Selection)
 	{
@@ -692,6 +692,17 @@ void AddObject(Profile& CurrentProfile, std::vector<ObjectStruct>& ProfileObject
 		//We insert the object into the vector to not fully reload profiles
 	}
 	CurrentTask = L"";
+}
+
+void AddModrinthProject(std::vector<ObjectStruct>& ProfileObjectStructVector, Project& CurrentProject, int POSIndex)
+{
+	std::wstring Filename = string2wstring(CurrentProject.Versions[CurrentProject.SelectedVersionIndex].Filename);
+	std::wstring Filepath = ProfileObjectStructVector[POSIndex].ObjectType.Folder + L"\\" + Filename;
+	std::string FileInMemory = "";
+	DownloadFile(CurrentProject.Versions[CurrentProject.SelectedVersionIndex].FileURL, Filepath, FileInMemory);
+	DownloadProgress = 0;
+	Object NewObject = GetObjectInfo(Filename, ProfileObjectStructVector[POSIndex].ObjectType, true);
+	ProfileObjectStructVector[POSIndex].ObjectVector.insert(ProfileObjectStructVector[POSIndex].ObjectVector.begin(), NewObject);
 }
 
 void MoveObjectByState(ObjectStruct& ObjectStruct, int ObjectIndex)
@@ -729,6 +740,7 @@ void GetVersionsInfo(Project& CurrentProject)
 		for (auto& file : CVersion["files"])
 		{
 			CurrentVersion.FileURL = file.value("url", "");
+			CurrentVersion.Filename = file.value("filename", "");
 			break; // Versions only contain one main file
 		}
 		CurrentProject.Versions.push_back(CurrentVersion);
@@ -754,7 +766,19 @@ bool CheckInstalled(Project& CurrentProject, std::vector<ObjectStruct>& ObjectSt
 	return false;
 }
 
-Project GetOneProjectInfo(json& item, std::vector<ObjectStruct>& ObjectStructVector, std::wstring& ObjectType, std::wstring& ProfileVersion, std::string ProjectID = "", bool IsDependency = false)
+bool IsInInstallList(std::vector<Project>& InstallList, std::string& ProjectID)
+{
+	for (int i = 0; i < InstallList.size(); i++)
+	{
+		if (ProjectID == InstallList[i].ProjectID)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+Project GetOneProjectInfo(json& item, std::vector<ObjectStruct>& ObjectStructVector, std::wstring& ObjectType, std::wstring& ProfileVersion, std::vector<Project>& InstallList, std::string ProjectID = "", bool IsDependency = false)
 {
 	std::string VersionsLink = "";
 	Project CurrentProject;
@@ -782,7 +806,7 @@ Project GetOneProjectInfo(json& item, std::vector<ObjectStruct>& ObjectStructVec
 	}
 	CurrentProject.VersionsLink = VersionsLink;
 	CurrentProject.IsAlreadyInstalled = CheckInstalled(CurrentProject, ObjectStructVector, ObjectType);
-	CurrentProject.GetInstalled = false;
+	CurrentProject.GetInstalled = IsInInstallList(InstallList, CurrentProject.ProjectID);
 	CurrentProject.SelectedVersionIndex = 0;
 	return CurrentProject;
 }
@@ -818,14 +842,15 @@ void GetProjectsInfo(std::wstring& ObjectType, Profile& CurrentProfile, int Sear
 	json Objects = json::parse(Projects);
 	for (auto& item : Objects["hits"])
 	{
-		Project CurrentProject = GetOneProjectInfo(item, CurrentProfile.ObjectStructVector, ObjectType, CurrentProfile.Version);
+		Project CurrentProject = GetOneProjectInfo(item, CurrentProfile.ObjectStructVector, ObjectType, CurrentProfile.Version, CurrentProfile.ModrinthProjectsToInstall);
 		CurrentProfile.ModrinthProjects.push_back(CurrentProject);
 	}
 	CurrentTask = L"";
 }
 
-void GetDependencies(Profile& CurrentProfile, Project& CurrentProject, std::wstring& ObjectType, std::vector<Project>& DependencyList)
+std::vector<Project> GetDependencies(Profile& CurrentProfile, Project& CurrentProject, std::wstring& ObjectType, std::vector<Project>& InstallList)
 {
+	std::vector<Project> DependencyList;
 	std::string URLForVersion = "https://api.modrinth.com/v2/project/" + CurrentProject.ProjectID + "/version/" + CurrentProject.Versions[CurrentProject.SelectedVersionIndex].Id;
 	std::string SelectedVersion = "";
 	DownloadFile(URLForVersion, L"", SelectedVersion);
@@ -839,17 +864,12 @@ void GetDependencies(Profile& CurrentProfile, Project& CurrentProject, std::wstr
 			std::string URL = "https://api.modrinth.com/v2/project/" + ProjectID;
 			DownloadFile(URL, L"", ProjectInfo);
 			json ProjectJson = json::parse(ProjectInfo);
-			Project DependencyProject = GetOneProjectInfo(ProjectJson, CurrentProfile.ObjectStructVector, ObjectType, CurrentProfile.Version, ProjectID, true);
-			bool IsAlreadyInList = false;
-			for (int i = 0; i < CurrentProfile.ModrinthProjectsToInstall.size(); i++)
+			Project DependencyProject = GetOneProjectInfo(ProjectJson, CurrentProfile.ObjectStructVector, ObjectType, CurrentProfile.Version, InstallList, ProjectID, true);
+			if (IsInInstallList(InstallList, DependencyProject.ProjectID))
 			{
-				if (CurrentProfile.ModrinthProjectsToInstall[i].Title == DependencyProject.Title)
-				{
-					IsAlreadyInList = true;
-					break;
-				}
+				break;
 			}
-			if (!DependencyProject.IsAlreadyInstalled && !IsAlreadyInList)
+			if (!DependencyProject.IsAlreadyInstalled)
 			{
 				GetVersionsInfo(DependencyProject);
 				for (int i = 0; i < DependencyProject.Versions.size(); i++)
@@ -869,23 +889,35 @@ void GetDependencies(Profile& CurrentProfile, Project& CurrentProject, std::wstr
 			}
 		}
 	}
+	return DependencyList;
 }
 
 void GetInstallList(Profile& CurrentProfile, std::wstring& ObjectType)
 {
 	CurrentTask = L"Getting install list...";
-	for (int i = 0; i < CurrentProfile.ModrinthProjects.size(); i++)
+	for (int i = 0; i < CurrentProfile.ModrinthProjectsToInstall.size(); i++)
 	{
-		if (CurrentProfile.ModrinthProjects[i].GetInstalled)
+		GetVersionsInfo(CurrentProfile.ModrinthProjectsToInstall[i]);
+		if (ObjectType == L"Mods")
 		{
-			CurrentProfile.ModrinthProjectsToInstall.push_back(CurrentProfile.ModrinthProjects[i]);
-			if (ObjectType == L"Mods")
+			for (Project& DependencyProject : GetDependencies(CurrentProfile, CurrentProfile.ModrinthProjectsToInstall[i], ObjectType, CurrentProfile.ModrinthProjectsToInstall))
 			{
-				GetDependencies(CurrentProfile, CurrentProfile.ModrinthProjects[i], ObjectType, CurrentProfile.ModrinthProjectsToInstall);
+				CurrentProfile.ModrinthProjectsToInstall.push_back(DependencyProject);
 			}
 		}
 	}
 	CurrentTask = L"";
+}
+
+void InstallProjects(Profile& CurrentProfile, std::wstring& ObjectType, int POSIndex)
+{
+	for (Project& CurrentProject : CurrentProfile.ModrinthProjectsToInstall)
+	{
+		if (CurrentProject.GetInstalled)
+		{
+			AddModrinthProject(CurrentProfile.ObjectStructVector, CurrentProject, POSIndex);
+		}
+	}
 }
 
 void ObjectList(Profile& CurrentProfile)
@@ -921,6 +953,10 @@ void ObjectList(Profile& CurrentProfile)
 						if (!ProfileObjectStructVector[POSIndex].ShowInstallProjectsTab)
 						{
 							ImGui::BeginChild(("ProjectsInfo" + std::to_string(POSIndex)).c_str(), ImVec2(0, -ImGui::GetFrameHeightWithSpacing()));
+							if (CurrentTask != L"")
+							{
+								ImGui::Text("%s", wstring2string(CurrentTask).c_str());
+							}
 							static std::string Search = "";
 							if (TextInput(L"Search", Search, 250))
 							{
@@ -937,6 +973,7 @@ void ObjectList(Profile& CurrentProfile)
 								CurrentProfile.ModrinthProjects.clear();
 								std::thread ProjectsThread(GetProjectsInfo, std::ref(ObjectType), std::ref(CurrentProfile), 0, Search, std::ref(SearchSortBy[Settings.PreferedSort]));
 								ProjectsThread.detach();
+								
 							}
 							for (int p = 0; p < CurrentProfile.ModrinthProjects.size(); p++)
 							{
@@ -950,12 +987,18 @@ void ObjectList(Profile& CurrentProfile)
 								{
 									if (CurrentProfile.ModrinthProjects[p].GetInstalled)
 									{
-										std::thread VersionThread(GetVersionsInfo, std::ref(CurrentProfile.ModrinthProjects[p]));
-										VersionThread.detach();
+										CurrentProfile.ModrinthProjectsToInstall.push_back(CurrentProfile.ModrinthProjects[p]);
 									}
 									else
 									{
-										CurrentProfile.ModrinthProjects[p].Versions.clear();
+										for (int i = 0; i < CurrentProfile.ModrinthProjectsToInstall.size(); i++)
+										{
+											if (CurrentProfile.ModrinthProjectsToInstall[i].ProjectID == CurrentProfile.ModrinthProjects[p].ProjectID)
+											{
+												CurrentProfile.ModrinthProjectsToInstall.erase(CurrentProfile.ModrinthProjectsToInstall.begin() + i);
+												break;
+											}
+										}
 									}
 								}
 								if (p != CurrentProfile.ModrinthProjects.size() - 1)
@@ -970,12 +1013,19 @@ void ObjectList(Profile& CurrentProfile)
 								ProjectsThread.detach();
 							}
 							ImGui::EndChild();
+							if (CurrentTask == L"Getting versions info...")
+							{
+								ImGui::BeginDisabled();
+							}
 							if (ImGui::Button(("Check to install##Projects" + std::to_string(POSIndex)).c_str()))
 							{
-								CurrentProfile.ModrinthProjectsToInstall.clear();
 								std::thread InstallListThread(GetInstallList, std::ref(CurrentProfile), std::ref(ObjectType));
 								InstallListThread.detach();
 								ProfileObjectStructVector[POSIndex].ShowInstallProjectsTab = true;
+							}
+							if (CurrentTask == L"Getting versions info...")
+							{
+								ImGui::EndDisabled();
 							}
 							ImGui::SameLine();
 							if (ImGui::Button(("Cancel##Projects" + std::to_string(POSIndex)).c_str()))
@@ -998,8 +1048,11 @@ void ObjectList(Profile& CurrentProfile)
 							{
 								ImGui::Text("%s", CurrentProfile.ModrinthProjectsToInstall[i].Title.c_str());
 								ImGui::Checkbox(("##InstallThisProject" + std::to_string(POSIndex + i)).c_str(), &CurrentProfile.ModrinthProjectsToInstall[i].GetInstalled);
-								ImGui::SameLine();
-								Combo(CurrentProfile.ModrinthProjectsToInstall[i].Versions, 10 + POSIndex + i, CurrentProfile.ModrinthProjects[i].SelectedVersionIndex);
+								if (!CurrentProfile.ModrinthProjectsToInstall[i].Versions.empty())
+								{
+									ImGui::SameLine();
+									Combo(CurrentProfile.ModrinthProjectsToInstall[i].Versions, 10 + POSIndex + i, CurrentProfile.ModrinthProjects[i].SelectedVersionIndex);
+								}
 							}
 							ImGui::EndChild();
 							if (CurrentTask == L"Getting install list...")
@@ -1008,17 +1061,24 @@ void ObjectList(Profile& CurrentProfile)
 							}
 							if (ImGui::Button(("Install##ProjectsInstall" + std::to_string(POSIndex)).c_str()))
 							{
-
-							}
-							if (CurrentTask == L"Getting install list...")
-							{
-								ImGui::EndDisabled();
+								InstallProjects(CurrentProfile, ObjectType, POSIndex);
 							}
 							ImGui::SameLine();
 							if (ImGui::Button(("Cancel##ProjectsInstall" + std::to_string(POSIndex)).c_str()))
 							{
-								CurrentProfile.ModrinthProjectsToInstall.clear();
+								for (int i = 0; i < CurrentProfile.ModrinthProjectsToInstall.size(); i++)
+								{
+									CurrentProfile.ModrinthProjectsToInstall[i].Versions.clear();
+									if (CurrentProfile.ModrinthProjectsToInstall[i].IsDependency)
+									{
+										CurrentProfile.ModrinthProjectsToInstall.erase(CurrentProfile.ModrinthProjectsToInstall.begin() + i);
+									}
+								}
 								ProfileObjectStructVector[POSIndex].ShowInstallProjectsTab = false;
+							}
+							if (CurrentTask == L"Getting install list...")
+							{
+								ImGui::EndDisabled();
 							}
 						}
 					}
@@ -1028,7 +1088,7 @@ void ObjectList(Profile& CurrentProfile)
 				if (ProfileFileBrowserVector[POSIndex].HasSelected())
 				{
 					std::vector<fs::path> Selection = ProfileFileBrowserVector[POSIndex].GetMultiSelected();
-					std::thread NewThread(AddObject, std::ref(CurrentProfile), std::ref(ProfileObjectStructVector), Selection, POSIndex);
+					std::thread NewThread(AddObjects, std::ref(CurrentProfile), std::ref(ProfileObjectStructVector), Selection, POSIndex);
 					NewThread.detach();
 					ProfileFileBrowserVector[POSIndex].ClearSelected();
 				}

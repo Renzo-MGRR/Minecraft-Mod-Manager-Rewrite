@@ -32,6 +32,7 @@ struct Version {
 	std::string Name;
 	std::string VersionNumber;
 	std::string FileURL;
+	std::string Filename;
 	std::vector<std::string> GameVersions;
 };
 struct Project {
